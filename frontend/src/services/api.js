@@ -20,3 +20,17 @@ export function checkEmailExposure(email) {
 export function checkPasswordStrength(password) {
   return postJson("/api/exposure/password", { password })
 }
+
+export async function checkPhotoMetadata(file) {
+  const formData = new FormData()
+  formData.append("file", file)
+  const res = await fetch(`${API_BASE}/api/exposure/photo`, {
+    method: "POST",
+    body: formData,
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail || `Request failed (${res.status})`)
+  }
+  return res.json()
+}

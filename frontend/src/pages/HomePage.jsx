@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { checkEmailExposure } from "../services/api"
 
-export default function HomePage({ onResult }) {
+export default function HomePage({ onResult, onCheckPhoto }) {
   const [email, setEmail] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -45,6 +45,13 @@ export default function HomePage({ onResult }) {
           </button>
         </form>
         {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
+
+        <button
+          onClick={onCheckPhoto}
+          className="text-sm text-gray-500 hover:text-gray-900 mt-6"
+        >
+          Or check a photo for hidden metadata →
+        </button>
       </div>
     </div>
   )

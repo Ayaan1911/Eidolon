@@ -1,13 +1,29 @@
 import { useState } from "react"
 import HomePage from "./pages/HomePage"
 import ExposureReport from "./pages/ExposureReport"
+import PhotoCheck from "./pages/PhotoCheck"
 
 export default function App() {
-  const [result, setResult] = useState(null)
+  const [view, setView] = useState("home")
+  const [emailResult, setEmailResult] = useState(null)
 
-  return result ? (
-    <ExposureReport result={result} onReset={() => setResult(null)} />
-  ) : (
-    <HomePage onResult={setResult} />
+  if (view === "photo") {
+    return <PhotoCheck onBack={() => setView("home")} />
+  }
+
+  if (emailResult) {
+    return (
+      <ExposureReport
+        result={emailResult}
+        onReset={() => {
+          setEmailResult(null)
+          setView("home")
+        }}
+      />
+    )
+  }
+
+  return (
+    <HomePage onResult={setEmailResult} onCheckPhoto={() => setView("photo")} />
   )
 }

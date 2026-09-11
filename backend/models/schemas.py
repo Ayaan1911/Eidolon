@@ -27,3 +27,11 @@ class PasswordCheckResponse(BaseModel):
     score: int
     feedback: str
     crack_time_display: str
+
+
+class PhotoMetadataResponse(BaseModel):
+    has_location: bool
+    latitude: float | None = None
+    longitude: float | None = None
+    device: str | None = None
+    captured_at: str | None = None
