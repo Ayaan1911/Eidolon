@@ -1,0 +1,22 @@
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8001"
+
+async function postJson(path, body) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail || `Request failed (${res.status})`)
+  }
+  return res.json()
+}
+
+export function checkEmailExposure(email) {
+  return postJson("/api/exposure/email", { email })
+}
+
+export function checkPasswordStrength(password) {
+  return postJson("/api/exposure/password", { password })
+}

@@ -1,0 +1,15 @@
+# reference only, not part of the build
+legacy/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+
+# env
+.env
