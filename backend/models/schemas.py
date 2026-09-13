@@ -35,3 +35,29 @@ class PhotoMetadataResponse(BaseModel):
     longitude: float | None = None
     device: str | None = None
     captured_at: str | None = None
+
+
+class RepoScanRequest(BaseModel):
+    username: str
+
+
+class SecretFinding(BaseModel):
+    file: str
+    line: int
+    type: str
+    masked_value: str
+    severity: str
+
+
+class RepoFindings(BaseModel):
+    repo: str
+    findings: list[SecretFinding]
+
+
+class RepoScanResponse(BaseModel):
+    username: str
+    repos_scanned: int
+    total_findings: int
+    results: list[RepoFindings]
+    incomplete: bool
+    incomplete_reason: str | None = None

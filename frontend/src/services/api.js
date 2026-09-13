@@ -21,6 +21,10 @@ export function checkPasswordStrength(password) {
   return postJson("/api/exposure/password", { password })
 }
 
+export function scanGithubRepos(username) {
+  return postJson("/api/exposure/repos", { username })
+}
+
 export async function checkPhotoMetadata(file) {
   const formData = new FormData()
   formData.append("file", file)
