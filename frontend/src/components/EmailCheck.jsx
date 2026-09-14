@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { checkEmailExposure } from "../services/api"
 import { emailToFindings } from "../lib/findings"
+import FolderSection from "./FolderSection"
 
 export default function EmailCheck({ onFindings }) {
   const [email, setEmail] = useState("")
@@ -25,9 +26,9 @@ export default function EmailCheck({ onFindings }) {
   }
 
   return (
-    <div className="border border-gray-200 rounded-lg p-4">
-      <h2 className="font-semibold text-gray-900 mb-1">Email breach check</h2>
-      <p className="text-sm text-gray-500 mb-3">
+    <FolderSection label="Email">
+      <h2 className="font-semibold text-ink mb-1">Email breach check</h2>
+      <p className="text-sm text-ink-soft mb-3">
         See if your email has shown up in a known data breach.
       </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-2">
@@ -40,20 +41,20 @@ export default function EmailCheck({ onFindings }) {
             setDone(false)
           }}
           placeholder="you@example.com"
-          className="border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
+          className="border border-line bg-paper px-4 py-2 text-ink placeholder:text-ink-soft/60 focus:outline-none focus:border-ink"
         />
         <button
           type="submit"
           disabled={loading}
-          className="bg-gray-900 text-white rounded-lg px-4 py-2 font-medium disabled:opacity-50"
+          className="bg-ink text-paper-raised px-4 py-2 font-medium uppercase tracking-wide text-sm hover:opacity-90 disabled:opacity-50"
         >
           {loading ? "Checking..." : "Check my exposure"}
         </button>
       </form>
-      {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
+      {error && <p className="text-redact text-sm mt-3">{error}</p>}
       {done && !error && (
-        <p className="text-green-700 text-sm mt-3">Added to your dossier below ↓</p>
+        <p className="text-clear text-sm mt-3">Added to your dossier below ↓</p>
       )}
-    </div>
+    </FolderSection>
   )
 }

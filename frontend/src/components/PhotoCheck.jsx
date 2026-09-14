@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { checkPhotoMetadata } from "../services/api"
 import { photoToFindings } from "../lib/findings"
+import FolderSection from "./FolderSection"
 
 function formatCapturedAt(raw) {
   if (!raw) return null
@@ -40,9 +41,9 @@ export default function PhotoCheck({ onFindings }) {
   }
 
   return (
-    <div className="border border-gray-200 rounded-lg p-4">
-      <h2 className="font-semibold text-gray-900 mb-1">Photo metadata check</h2>
-      <p className="text-sm text-gray-500 mb-3">
+    <FolderSection label="Photo">
+      <h2 className="font-semibold text-ink mb-1">Photo metadata check</h2>
+      <p className="text-sm text-ink-soft mb-3">
         Photos carry more than the image — device, timestamp, sometimes exact location.
       </p>
       <label
@@ -52,11 +53,11 @@ export default function PhotoCheck({ onFindings }) {
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-        className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg py-8 px-4 cursor-pointer transition-colors ${
-          dragOver ? "border-gray-900 bg-gray-50" : "border-gray-300"
+        className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed py-8 px-4 cursor-pointer transition-colors ${
+          dragOver ? "border-ink bg-paper" : "border-line"
         }`}
       >
-        <span className="text-gray-600 text-sm">
+        <span className="text-ink-soft text-sm">
           {loading ? "Analyzing..." : "Drop a photo here, or click to choose one"}
         </span>
         <input
@@ -67,10 +68,10 @@ export default function PhotoCheck({ onFindings }) {
           onChange={(e) => e.target.files?.[0] && analyze(e.target.files[0])}
         />
       </label>
-      {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
+      {error && <p className="text-redact text-sm mt-3">{error}</p>}
       {done && !error && (
-        <p className="text-green-700 text-sm mt-3">Added to your dossier below ↓</p>
+        <p className="text-clear text-sm mt-3">Added to your dossier below ↓</p>
       )}
-    </div>
+    </FolderSection>
   )
 }

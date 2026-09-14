@@ -6,19 +6,30 @@ const sourceLabels = {
   secret: "Secret",
 }
 
-const severityDot = {
-  CRITICAL: "bg-red-500",
-  HIGH: "bg-red-500",
-  High: "bg-red-500",
-  Medium: "bg-amber-500",
-  Low: "bg-gray-400",
-  None: "bg-green-500",
+// Left-edge marker color — the redact accent is reserved for what's actually
+// flagged; clean/lower findings stay in the neutral ink/line palette.
+const severityAccent = {
+  CRITICAL: "border-l-redact",
+  HIGH: "border-l-redact",
+  High: "border-l-redact",
+  Medium: "border-l-ink-soft",
+  Low: "border-l-line",
+  None: "border-l-clear",
+}
+
+const severityBadge = {
+  CRITICAL: { label: "CRITICAL", className: "bg-redact-soft text-redact border-redact/30" },
+  HIGH: { label: "HIGH", className: "bg-redact-soft text-redact border-redact/30" },
+  High: { label: "HIGH", className: "bg-redact-soft text-redact border-redact/30" },
+  Medium: { label: "MEDIUM", className: "bg-transparent text-ink-soft border-line" },
+  Low: { label: "LOW", className: "bg-transparent text-ink-soft border-line" },
+  None: { label: "CLEAR", className: "bg-transparent text-clear border-clear/40" },
 }
 
 export default function Dossier({ findings }) {
   if (findings.length === 0) {
     return (
-      <div className="border border-dashed border-gray-300 rounded-lg py-14 px-6 text-center text-gray-500">
+      <div className="border border-dashed border-line py-14 px-6 text-center text-ink-soft italic">
         Run a check below to start uncovering your Eidolon.
       </div>
     )
@@ -31,7 +42,13 @@ export default function Dossier({ findings }) {
           key={finding.id}
           finding={finding}
           sourceLabel={sourceLabels[finding.type] || finding.type}
-          severityDotClass={severityDot[finding.severity] || "bg-gray-400"}
+          accentClass={severityAccent[finding.severity] || "border-l-line"}
+          badge={
+            severityBadge[finding.severity] || {
+              label: finding.severity || "—",
+              className: "bg-transparent text-ink-soft border-line",
+            }
+          }
         />
       ))}
     </div>

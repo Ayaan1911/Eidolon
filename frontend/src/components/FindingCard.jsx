@@ -8,7 +8,33 @@ const trapTips = {
     "Use this as a canary link anywhere you'd expect phishing aimed at that email to lead.",
 }
 
-export default function FindingCard({ finding, sourceLabel, severityDotClass }) {
+// Renders a masked secret value ("AKIA...N7EX" or "****") as a censored
+// document would: visible characters stay text, the hidden span becomes a
+// solid ink bar instead of literal dots/asterisks.
+function RedactedValue({ value }) {
+  const dotsIndex = value.indexOf("...")
+  if (dotsIndex === -1) {
+    return (
+      <span
+        className="inline-block align-middle bg-ink h-[0.85em]"
+        style={{ width: `${Math.min(Math.max(value.length, 4), 16) * 0.55}em` }}
+        aria-label="redacted value"
+      />
+    )
+  }
+  return (
+    <span className="align-middle">
+      {value.slice(0, dotsIndex)}
+      <span
+        className="inline-block align-middle bg-ink h-[0.85em] w-6 mx-0.5"
+        aria-hidden
+      />
+      {value.slice(dotsIndex + 3)}
+    </span>
+  )
+}
+
+export default function FindingCard({ finding, sourceLabel, accentClass, badge }) {
   const [trap, setTrap] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -46,34 +72,49 @@ export default function FindingCard({ finding, sourceLabel, severityDotClass }) 
   }
 
   return (
-    <div className="border border-gray-200 rounded-lg p-4 flex items-start gap-3">
-      <span
-        className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${severityDotClass}`}
-        aria-hidden
-      />
+    <div
+      className={`border border-line border-l-[3px] ${accentClass} bg-paper-raised px-4 py-3 flex items-start gap-3`}
+    >
       <div className="flex-1">
-        <span className="text-xs font-medium uppercase tracking-wide text-gray-400">
-          {sourceLabel}
-        </span>
-        <p className="text-gray-800 mt-0.5">{finding.summary}</p>
+        <div className="flex items-center gap-2 mb-1">
+          <span className="font-mono text-[10px] uppercase tracking-wider border border-line px-1.5 py-0.5 text-ink-soft">
+            {sourceLabel}
+          </span>
+          <span
+            className={`font-mono text-[10px] uppercase tracking-wider border px-1.5 py-0.5 ${badge.className}`}
+          >
+            {badge.label}
+          </span>
+        </div>
+
+        <p className="text-ink mt-0.5">{finding.summary}</p>
+
+        {finding.type === "secret" && finding.raw?.masked_value && (
+          <p className="mt-1.5 text-xs text-ink-soft flex items-center gap-1.5">
+            <span className="uppercase tracking-wider text-[10px]">Exposed value</span>
+            <span className="font-mono">
+              <RedactedValue value={finding.raw.masked_value} />
+            </span>
+          </p>
+        )}
 
         {trap && (
           <div className="mt-2 text-sm">
-            <p className="text-gray-600">
+            <p className="text-ink-soft">
               Trap deployed:{" "}
               <button
                 type="button"
                 onClick={copyUrl}
-                className="text-purple-700 underline font-mono"
+                className="font-mono text-ink underline decoration-line hover:text-redact"
               >
                 {trap.trap_url}
               </button>
-              {copied && <span className="text-green-600 text-xs ml-2">Copied</span>}
+              {copied && <span className="text-clear text-xs ml-2">Copied</span>}
             </p>
-            <p className="text-gray-500 text-xs mt-1">{trapTips[finding.type]}</p>
+            <p className="text-ink-soft text-xs mt-1">{trapTips[finding.type]}</p>
           </div>
         )}
-        {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
+        {error && <p className="text-redact text-sm mt-2">{error}</p>}
       </div>
 
       {canTrap && !trap && (
@@ -81,7 +122,7 @@ export default function FindingCard({ finding, sourceLabel, severityDotClass }) 
           type="button"
           onClick={deployTrap}
           disabled={loading}
-          className="text-xs text-purple-700 border border-purple-200 rounded-full px-3 py-1 shrink-0 hover:bg-purple-50 disabled:opacity-50"
+          className="text-xs font-medium text-redact border border-redact px-3 py-1 shrink-0 uppercase tracking-wide hover:bg-redact-soft disabled:opacity-50"
         >
           {loading ? "Deploying..." : "Trap this →"}
         </button>
