@@ -1,38 +1,39 @@
 import { useState } from "react"
-import HomePage from "./pages/HomePage"
-import ExposureReport from "./pages/ExposureReport"
-import PhotoCheck from "./pages/PhotoCheck"
-import RepoScan from "./pages/RepoScan"
+import EmailCheck from "./components/EmailCheck"
+import PhotoCheck from "./components/PhotoCheck"
+import RepoScan from "./components/RepoScan"
+import Dossier from "./components/Dossier"
+
+let nextId = 0
 
 export default function App() {
-  const [view, setView] = useState("home")
-  const [emailResult, setEmailResult] = useState(null)
+  const [findings, setFindings] = useState([])
 
-  if (view === "photo") {
-    return <PhotoCheck onBack={() => setView("home")} />
-  }
-
-  if (view === "repos") {
-    return <RepoScan onBack={() => setView("home")} />
-  }
-
-  if (emailResult) {
-    return (
-      <ExposureReport
-        result={emailResult}
-        onReset={() => {
-          setEmailResult(null)
-          setView("home")
-        }}
-      />
-    )
+  function addFindings(newFindings) {
+    setFindings((prev) => [
+      ...prev,
+      ...newFindings.map((f) => ({ ...f, id: nextId++ })),
+    ])
   }
 
   return (
-    <HomePage
-      onResult={setEmailResult}
-      onCheckPhoto={() => setView("photo")}
-      onScanRepos={() => setView("repos")}
-    />
+    <div className="min-h-screen px-4 py-10">
+      <div className="max-w-2xl mx-auto">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Your Eidolon</h1>
+        <p className="text-gray-600 mb-8">
+          See what can be discovered about you without your knowing. Run any check
+          below — findings build up into a running dossier as they come in.
+        </p>
+
+        <div className="grid gap-4 mb-10">
+          <EmailCheck onFindings={addFindings} />
+          <PhotoCheck onFindings={addFindings} />
+          <RepoScan onFindings={addFindings} />
+        </div>
+
+        <h2 className="text-lg font-semibold text-gray-900 mb-3">Dossier</h2>
+        <Dossier findings={findings} />
+      </div>
+    </div>
   )
 }
