@@ -75,7 +75,7 @@ export function repoToFindings(username, result) {
   return result.results.flatMap((repo) =>
     repo.findings.map((f) => ({
       type: "secret",
-      summary: `A ${f.type} was found exposed in ${username}/${repo.repo} at ${f.file}, line ${f.line}.`,
+      summary: `A ${f.type} was found exposed in ${repo.repo} at ${f.file}, line ${f.line}.`,
       severity: f.severity,
       raw: f,
     }))
