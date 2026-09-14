@@ -39,8 +39,8 @@ export async function checkPhotoMetadata(file) {
   return res.json()
 }
 
-export function createTrap(name) {
-  return postJson("/api/traps", { name })
+export function createTrap({ name, source_type, context }) {
+  return postJson("/api/traps", { name, source_type, context })
 }
 
 export async function getTrapAlerts() {

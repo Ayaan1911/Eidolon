@@ -22,7 +22,7 @@ async def create_trap(
     body: TrapCreateRequest, request: Request, db: Session = Depends(get_db)
 ) -> TrapCreateResponse:
     trap_id = uuid.uuid4().hex[:8]
-    db.add(Trap(id=trap_id, name=body.name))
+    db.add(Trap(id=trap_id, name=body.name, source_type=body.source_type, context=body.context))
     db.commit()
     return TrapCreateResponse(id=trap_id, trap_url=f"{request.base_url}trap/{trap_id}")
 
@@ -70,7 +70,13 @@ async def trigger_trap(trap_id: str, request: Request, db: Session = Depends(get
 
 @router.get("/api/traps/alerts", response_model=list[AlertResponse])
 async def list_alerts(db: Session = Depends(get_db)) -> list[AlertResponse]:
-    alerts = db.query(Alert).order_by(Alert.timestamp.desc()).limit(50).all()
+    rows = (
+        db.query(Alert, Trap)
+        .outerjoin(Trap, Alert.trap_id == Trap.id)
+        .order_by(Alert.timestamp.desc())
+        .limit(50)
+        .all()
+    )
     return [
         AlertResponse(
             id=a.id,
@@ -84,6 +90,8 @@ async def list_alerts(db: Session = Depends(get_db)) -> list[AlertResponse]:
             os=a.os,
             device=a.device,
             timestamp=a.timestamp.isoformat(),
+            source_type=t.source_type if t else None,
+            context=t.context if t else None,
         )
-        for a in alerts
+        for a, t in rows
     ]

@@ -24,6 +24,9 @@ class Trap(Base):
     name = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     trigger_count = Column(Integer, default=0)
+    # Set when a trap is deployed from a dossier finding rather than the standalone Trap Lab.
+    source_type = Column(String, nullable=True)
+    context = Column(String, nullable=True)
 
 
 class Alert(Base):

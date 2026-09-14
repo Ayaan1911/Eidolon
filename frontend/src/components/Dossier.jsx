@@ -1,3 +1,5 @@
+import FindingCard from "./FindingCard"
+
 const sourceLabels = {
   breach: "Breach",
   photo: "Photo",
@@ -25,25 +27,12 @@ export default function Dossier({ findings }) {
   return (
     <div className="flex flex-col gap-3">
       {findings.map((finding) => (
-        <div key={finding.id} className="border border-gray-200 rounded-lg p-4 flex items-start gap-3">
-          <span
-            className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${severityDot[finding.severity] || "bg-gray-400"}`}
-            aria-hidden
-          />
-          <div className="flex-1">
-            <span className="text-xs font-medium uppercase tracking-wide text-gray-400">
-              {sourceLabels[finding.type] || finding.type}
-            </span>
-            <p className="text-gray-800 mt-0.5">{finding.summary}</p>
-          </div>
-          <button
-            disabled
-            title="Coming in Phase 2"
-            className="text-xs text-gray-400 border border-gray-200 rounded-full px-3 py-1 shrink-0 cursor-not-allowed"
-          >
-            Trap this → <span className="text-gray-300">(Phase 2)</span>
-          </button>
-        </div>
+        <FindingCard
+          key={finding.id}
+          finding={finding}
+          sourceLabel={sourceLabels[finding.type] || finding.type}
+          severityDotClass={severityDot[finding.severity] || "bg-gray-400"}
+        />
       ))}
     </div>
   )

@@ -13,7 +13,7 @@ export default function TrapLab() {
     setLoading(true)
     setError(null)
     try {
-      setTrap(await createTrap(name))
+      setTrap(await createTrap({ name }))
     } catch (err) {
       setError(err.message)
     } finally {

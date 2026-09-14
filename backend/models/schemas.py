@@ -65,6 +65,8 @@ class RepoScanResponse(BaseModel):
 
 class TrapCreateRequest(BaseModel):
     name: str
+    source_type: str | None = None
+    context: str | None = None
 
 
 class TrapCreateResponse(BaseModel):
@@ -84,3 +86,5 @@ class AlertResponse(BaseModel):
     os: str
     device: str
     timestamp: str
+    source_type: str | None = None
+    context: str | None = None
