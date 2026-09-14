@@ -4,6 +4,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from routers.exposure import limiter, router as exposure_router
+from routers.traps import router as traps_router
 
 app = FastAPI(title="Eidolon API")
 app.state.limiter = limiter
@@ -18,6 +19,7 @@ app.add_middleware(
 )
 
 app.include_router(exposure_router)
+app.include_router(traps_router)
 
 
 @app.get("/health")

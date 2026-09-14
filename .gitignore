@@ -13,3 +13,6 @@ dist/
 
 # env
 .env
+
+# trap alert database — runtime data, not source
+backend/*.db

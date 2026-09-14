@@ -3,6 +3,7 @@ import EmailCheck from "./components/EmailCheck"
 import PhotoCheck from "./components/PhotoCheck"
 import RepoScan from "./components/RepoScan"
 import Dossier from "./components/Dossier"
+import TrapLab from "./components/TrapLab"
 
 let nextId = 0
 
@@ -33,6 +34,10 @@ export default function App() {
 
         <h2 className="text-lg font-semibold text-gray-900 mb-3">Dossier</h2>
         <Dossier findings={findings} />
+
+        <hr className="my-10 border-gray-200" />
+
+        <TrapLab />
       </div>
     </div>
   )

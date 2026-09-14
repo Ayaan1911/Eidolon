@@ -6,3 +6,5 @@ slowapi
 zxcvbn
 Pillow
 python-multipart
+sqlalchemy
+user-agents

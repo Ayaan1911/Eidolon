@@ -38,3 +38,16 @@ export async function checkPhotoMetadata(file) {
   }
   return res.json()
 }
+
+export function createTrap(name) {
+  return postJson("/api/traps", { name })
+}
+
+export async function getTrapAlerts() {
+  const res = await fetch(`${API_BASE}/api/traps/alerts`)
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail || `Request failed (${res.status})`)
+  }
+  return res.json()
+}

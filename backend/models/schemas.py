@@ -61,3 +61,26 @@ class RepoScanResponse(BaseModel):
     results: list[RepoFindings]
     incomplete: bool
     incomplete_reason: str | None = None
+
+
+class TrapCreateRequest(BaseModel):
+    name: str
+
+
+class TrapCreateResponse(BaseModel):
+    id: str
+    trap_url: str
+
+
+class AlertResponse(BaseModel):
+    id: int
+    trap_id: str
+    ip: str
+    location: str
+    lat: float
+    lng: float
+    isp: str
+    browser: str
+    os: str
+    device: str
+    timestamp: str
