@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { createTrap } from "../services/api"
 import Stamp from "./Stamp"
+import ErrorNote from "./ErrorNote"
 
 const trapTips = {
   secret:
@@ -74,7 +75,7 @@ export default function FindingCard({ finding, sourceLabel, accentClass, stamp }
 
   return (
     <div
-      className={`border border-line border-l-[3px] ${accentClass} bg-paper-raised px-4 py-3 flex items-start gap-3`}
+      className={`border border-line border-l-2 ${accentClass} bg-paper-raised px-4 py-3 flex items-start gap-3`}
     >
       <div className="flex-1">
         <div className="flex items-center gap-3 mb-1">
@@ -102,7 +103,7 @@ export default function FindingCard({ finding, sourceLabel, accentClass, stamp }
               <button
                 type="button"
                 onClick={copyUrl}
-                className="font-mono text-ink underline decoration-line hover:text-redact"
+                className="font-mono text-ink underline decoration-line hover:decoration-ink"
               >
                 {trap.trap_url}
               </button>
@@ -111,7 +112,7 @@ export default function FindingCard({ finding, sourceLabel, accentClass, stamp }
             <p className="text-ink-soft text-xs mt-1.5">{trapTips[finding.type]}</p>
           </div>
         )}
-        {error && <p className="text-redact text-sm mt-2">{error}</p>}
+        {error && <ErrorNote>{error}</ErrorNote>}
       </div>
 
       {canTrap && !trap && (
@@ -119,7 +120,7 @@ export default function FindingCard({ finding, sourceLabel, accentClass, stamp }
           type="button"
           onClick={deployTrap}
           disabled={loading}
-          className="text-xs font-medium text-redact border border-redact px-3 py-1 shrink-0 uppercase tracking-wide hover:bg-redact-soft disabled:opacity-50"
+          className="text-xs font-medium border border-ink text-ink px-3 py-1 shrink-0 uppercase tracking-wide hover:bg-ink hover:text-paper-raised disabled:opacity-50"
         >
           {loading ? "Deploying..." : "Trap this →"}
         </button>

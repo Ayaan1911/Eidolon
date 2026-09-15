@@ -3,6 +3,7 @@ import { checkPhotoMetadata } from "../services/api"
 import { photoToFindings } from "../lib/findings"
 import { useFindings } from "../context/FindingsContext"
 import FolderSection from "./FolderSection"
+import ErrorNote from "./ErrorNote"
 
 function formatCapturedAt(raw) {
   if (!raw) return null
@@ -66,7 +67,7 @@ export default function PhotoCheck() {
           onChange={(e) => e.target.files?.[0] && analyze(e.target.files[0])}
         />
       </label>
-      {error && <p className="text-redact text-sm mt-3">{error}</p>}
+      {error && <ErrorNote>{error}</ErrorNote>}
       {done && !error && (
         <p className="text-clear text-sm mt-3">
           Added to your dossier — view it under Dossier ↑

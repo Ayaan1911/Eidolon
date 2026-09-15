@@ -1,7 +1,7 @@
 import { Link, NavLink } from "react-router-dom"
 
-// Persistent header. Real route links now (was anchor-scroll); the active
-// route lights up with the redact underline.
+// Persistent header. Active route is marked with the canonical 2px redact
+// rule (the one accent), not an ad-hoc color.
 const links = [
   ["/email", "Email"],
   ["/photo", "Photo"],
@@ -11,19 +11,19 @@ const links = [
 ]
 
 const linkClass = ({ isActive }) =>
-  `font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.18em] transition-colors ${
+  `font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.18em] transition-colors pb-0.5 border-b-2 ${
     isActive
-      ? "text-parchment underline decoration-redact underline-offset-4"
-      : "text-parchment-dim hover:text-parchment"
+      ? "text-parchment border-redact"
+      : "text-parchment-dim border-transparent hover:text-parchment"
   }`
 
 export default function Nav() {
   return (
     <nav className="sticky top-0 z-30 border-b border-line/30 bg-void/90 backdrop-blur-sm">
-      <div className="max-w-2xl mx-auto flex items-center justify-between px-4 py-3">
+      <div className="max-w-3xl mx-auto flex items-center justify-between px-5 py-3">
         <Link
           to="/"
-          className="font-display text-parchment text-base tracking-tight hover:text-redact transition-colors"
+          className="font-display text-parchment text-base tracking-tight hover:opacity-70 transition-opacity"
         >
           Eidolon
         </Link>

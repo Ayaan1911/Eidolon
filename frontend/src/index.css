@@ -14,7 +14,6 @@
   --color-line: #c9bfa8;
 
   --color-redact: #c63a2e;
-  --color-redact-soft: #efd9d3;
   --color-clear: #3f5c3f;
 
   --font-display: "Special Elite", "Courier New", monospace;
@@ -50,4 +49,47 @@ body {
     0 0 0 1px color-mix(in srgb, currentColor 22%, transparent),
     2px 2px 0 -1px color-mix(in srgb, currentColor 16%, transparent);
   text-shadow: 0 0 1px color-mix(in srgb, currentColor 30%, transparent);
+}
+
+/* ── Motion ─────────────────────────────────────────────────────────
+   Scroll-reveal, route transition, live pulse. All CSS-driven (no lib);
+   fully disabled under prefers-reduced-motion. */
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+.page-enter {
+  animation: page-in 0.38s ease both;
+}
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Live indicator for the trap signal stream — a pulsing ring. */
+.live-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--color-clear);
+  animation: live-pulse 1.8s ease-out infinite;
+}
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-clear) 55%, transparent); }
+  70% { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .page-enter { animation: none; }
+  .live-dot { animation: none; }
 }

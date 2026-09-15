@@ -1,6 +1,18 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { createTrap, getTrapAlerts } from "../services/api"
 import Stamp from "./Stamp"
+import ErrorNote from "./ErrorNote"
+
+// HH:MM:SS, 24h — the log timestamp.
+function clock(ts) {
+  const d = new Date(ts)
+  return Number.isNaN(d.getTime()) ? "--:--:--" : d.toLocaleTimeString([], { hour12: false })
+}
+
+// Most recent first.
+function newestFirst(alerts) {
+  return [...alerts].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+}
 
 export default function TrapLab() {
   const [name, setName] = useState("")
@@ -8,6 +20,12 @@ export default function TrapLab() {
   const [alerts, setAlerts] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+
+  // Pull the stream on open so it reads as live; stay silent if the backend
+  // is down (a manual refresh surfaces the error instead).
+  useEffect(() => {
+    getTrapAlerts().then(setAlerts).catch(() => {})
+  }, [])
 
   async function handleCreate(e) {
     e.preventDefault()
@@ -31,6 +49,8 @@ export default function TrapLab() {
     }
   }
 
+  const stream = alerts ? newestFirst(alerts) : null
+
   return (
     <div className="border border-dashed border-line bg-paper-raised px-4 py-3">
       <form onSubmit={handleCreate} className="flex flex-col gap-2 sm:flex-row">
@@ -51,7 +71,7 @@ export default function TrapLab() {
         </button>
       </form>
 
-      {error && <p className="text-redact text-sm mt-3">{error}</p>}
+      {error && <ErrorNote>{error}</ErrorNote>}
 
       {trap && (
         <div className="mt-3 text-sm">
@@ -61,7 +81,7 @@ export default function TrapLab() {
               href={trap.trap_url}
               target="_blank"
               rel="noreferrer"
-              className="font-mono text-ink underline decoration-line hover:text-redact"
+              className="font-mono text-ink underline decoration-line hover:decoration-ink"
             >
               {trap.trap_url}
             </a>
@@ -69,32 +89,44 @@ export default function TrapLab() {
         </div>
       )}
 
-      <div className="mt-4">
-        <button
-          onClick={refreshAlerts}
-          className="text-xs text-ink-soft hover:text-ink"
-        >
-          Refresh alerts →
-        </button>
+      {/* Signal stream — live trap-trigger log, newest at top. */}
+      <div className="mt-5">
+        <div className="flex items-center justify-between mb-2">
+          <span className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] text-ink-soft">
+            <span className="live-dot" aria-hidden />
+            Signal stream
+          </span>
+          <button
+            onClick={refreshAlerts}
+            className="font-mono text-[11px] uppercase tracking-wider text-ink-soft hover:text-ink"
+          >
+            Refresh →
+          </button>
+        </div>
 
-        {alerts && (
-          <div className="flex flex-col gap-2 mt-3">
-            {alerts.length === 0 ? (
-              <p className="text-xs text-ink-soft">No trap triggers logged yet.</p>
-            ) : (
-              alerts.map((a) => (
-                <div key={a.id} className="border border-line px-3 py-2 text-sm">
-                  <p className="text-ink-soft">
-                    {a.location} — {a.browser} on {a.os} ({a.device})
-                  </p>
-                  <p className="font-mono text-ink-soft text-xs mt-1">
-                    {a.ip} · trap {a.trap_id} · {new Date(a.timestamp).toLocaleString()}
-                  </p>
-                </div>
-              ))
-            )}
-          </div>
-        )}
+        <div className="bg-void border border-line/25 font-mono text-xs">
+          {stream === null ? (
+            <p className="px-3 py-3 text-parchment-dim/70">connecting to stream…</p>
+          ) : stream.length === 0 ? (
+            <p className="px-3 py-3 text-parchment-dim/70">
+              awaiting signal — no trap triggers logged yet.
+            </p>
+          ) : (
+            <ul>
+              {stream.map((a) => (
+                <li
+                  key={a.id}
+                  className="flex gap-3 px-3 py-1.5 border-b border-line/10 last:border-0"
+                >
+                  <span className="text-clear shrink-0">{clock(a.timestamp)}</span>
+                  <span className="text-parchment-dim truncate">
+                    {a.location} · {a.browser}/{a.os} · {a.ip} · trap {a.trap_id}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </div>
   )

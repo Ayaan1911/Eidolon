@@ -3,6 +3,7 @@ import { checkEmailExposure } from "../services/api"
 import { emailToFindings } from "../lib/findings"
 import { useFindings } from "../context/FindingsContext"
 import FolderSection from "./FolderSection"
+import ErrorNote from "./ErrorNote"
 
 export default function EmailCheck() {
   const { addFindings } = useFindings()
@@ -49,7 +50,7 @@ export default function EmailCheck() {
           {loading ? "Checking..." : "Check my exposure"}
         </button>
       </form>
-      {error && <p className="text-redact text-sm mt-3">{error}</p>}
+      {error && <ErrorNote>{error}</ErrorNote>}
       {done && !error && (
         <p className="text-clear text-sm mt-3">
           Added to your dossier — view it under Dossier ↑

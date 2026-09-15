@@ -3,6 +3,7 @@ import { scanGithubRepos } from "../services/api"
 import { repoToFindings } from "../lib/findings"
 import { useFindings } from "../context/FindingsContext"
 import FolderSection from "./FolderSection"
+import ErrorNote from "./ErrorNote"
 
 export default function RepoScan() {
   const { addFindings } = useFindings()
@@ -52,7 +53,7 @@ export default function RepoScan() {
           {loading ? "Scanning repos… this can take a bit" : "Scan my repos"}
         </button>
       </form>
-      {error && <p className="text-redact text-sm mt-3">{error}</p>}
+      {error && <ErrorNote>{error}</ErrorNote>}
       {incomplete && (
         <p className="border-l-2 border-line pl-2 text-ink-soft text-sm italic mt-3">
           Scan incomplete: {incomplete}
