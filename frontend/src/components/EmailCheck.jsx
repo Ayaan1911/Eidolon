@@ -1,9 +1,11 @@
 import { useState } from "react"
 import { checkEmailExposure } from "../services/api"
 import { emailToFindings } from "../lib/findings"
+import { useFindings } from "../context/FindingsContext"
 import FolderSection from "./FolderSection"
 
-export default function EmailCheck({ onFindings }) {
+export default function EmailCheck() {
+  const { addFindings } = useFindings()
   const [email, setEmail] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -16,7 +18,7 @@ export default function EmailCheck({ onFindings }) {
     setDone(false)
     try {
       const data = await checkEmailExposure(email)
-      onFindings(emailToFindings(email, data))
+      addFindings(emailToFindings(email, data))
       setDone(true)
     } catch (err) {
       setError(err.message)
@@ -27,10 +29,6 @@ export default function EmailCheck({ onFindings }) {
 
   return (
     <FolderSection label="Email">
-      <h2 className="font-semibold text-ink mb-1">Email breach check</h2>
-      <p className="text-sm text-ink-soft mb-3">
-        See if your email has shown up in a known data breach.
-      </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-2">
         <input
           type="email"
@@ -53,7 +51,9 @@ export default function EmailCheck({ onFindings }) {
       </form>
       {error && <p className="text-redact text-sm mt-3">{error}</p>}
       {done && !error && (
-        <p className="text-clear text-sm mt-3">Added to your dossier below ↓</p>
+        <p className="text-clear text-sm mt-3">
+          Added to your dossier — view it under Dossier ↑
+        </p>
       )}
     </FolderSection>
   )

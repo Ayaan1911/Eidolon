@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { checkPhotoMetadata } from "../services/api"
 import { photoToFindings } from "../lib/findings"
+import { useFindings } from "../context/FindingsContext"
 import FolderSection from "./FolderSection"
 
 function formatCapturedAt(raw) {
@@ -12,7 +13,8 @@ function formatCapturedAt(raw) {
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
 }
 
-export default function PhotoCheck({ onFindings }) {
+export default function PhotoCheck() {
+  const { addFindings } = useFindings()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [dragOver, setDragOver] = useState(false)
@@ -24,7 +26,7 @@ export default function PhotoCheck({ onFindings }) {
     setLoading(true)
     try {
       const data = await checkPhotoMetadata(selected)
-      onFindings(photoToFindings(data, formatCapturedAt))
+      addFindings(photoToFindings(data, formatCapturedAt))
       setDone(true)
     } catch (err) {
       setError(err.message)
@@ -42,10 +44,6 @@ export default function PhotoCheck({ onFindings }) {
 
   return (
     <FolderSection label="Photo">
-      <h2 className="font-semibold text-ink mb-1">Photo metadata check</h2>
-      <p className="text-sm text-ink-soft mb-3">
-        Photos carry more than the image — device, timestamp, sometimes exact location.
-      </p>
       <label
         onDragOver={(e) => {
           e.preventDefault()
@@ -70,7 +68,9 @@ export default function PhotoCheck({ onFindings }) {
       </label>
       {error && <p className="text-redact text-sm mt-3">{error}</p>}
       {done && !error && (
-        <p className="text-clear text-sm mt-3">Added to your dossier below ↓</p>
+        <p className="text-clear text-sm mt-3">
+          Added to your dossier — view it under Dossier ↑
+        </p>
       )}
     </FolderSection>
   )

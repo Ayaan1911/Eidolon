@@ -1,4 +1,5 @@
 import FindingCard from "./FindingCard"
+import { useFindings } from "../context/FindingsContext"
 
 const sourceLabels = {
   breach: "Breach",
@@ -27,11 +28,12 @@ const severityStamp = {
   None: { label: "CLEAR", tone: "clear" },
 }
 
-export default function Dossier({ findings }) {
+export default function Dossier() {
+  const { findings } = useFindings()
   if (findings.length === 0) {
     return (
       <div className="border border-dashed border-line/50 py-14 px-6 text-center text-parchment-dim italic">
-        Run a check above to start uncovering your Eidolon.
+        No findings yet. Run an Email, Photo or Repo check to start uncovering your Eidolon.
       </div>
     )
   }

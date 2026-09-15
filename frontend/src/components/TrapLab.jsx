@@ -33,15 +33,6 @@ export default function TrapLab() {
 
   return (
     <div className="border border-dashed border-line bg-paper-raised px-4 py-3">
-      <h2 className="font-display text-xs uppercase tracking-[0.15em] text-ink-soft mb-1">
-        Trap Lab
-      </h2>
-      <p className="text-xs text-ink-soft mb-3">
-        Standalone test bed for the trap mechanism — create one here without tying it
-        to a dossier finding. Findings themselves deploy traps directly via their own
-        "Trap this →" action.
-      </p>
-
       <form onSubmit={handleCreate} className="flex flex-col gap-2 sm:flex-row">
         <input
           type="text"

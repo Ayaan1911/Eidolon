@@ -1,9 +1,11 @@
 import { useState } from "react"
 import { scanGithubRepos } from "../services/api"
 import { repoToFindings } from "../lib/findings"
+import { useFindings } from "../context/FindingsContext"
 import FolderSection from "./FolderSection"
 
-export default function RepoScan({ onFindings }) {
+export default function RepoScan() {
+  const { addFindings } = useFindings()
   const [username, setUsername] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -18,7 +20,7 @@ export default function RepoScan({ onFindings }) {
     setIncomplete(null)
     try {
       const data = await scanGithubRepos(username)
-      onFindings(repoToFindings(username, data))
+      addFindings(repoToFindings(username, data))
       if (data.incomplete) setIncomplete(data.incomplete_reason)
       setDone(true)
     } catch (err) {
@@ -30,11 +32,6 @@ export default function RepoScan({ onFindings }) {
 
   return (
     <FolderSection label="Repo">
-      <h2 className="font-semibold text-ink mb-1">GitHub secret scan</h2>
-      <p className="text-sm text-ink-soft mb-3">
-        Scans your public, non-fork repos for accidentally committed API keys, tokens,
-        and other credentials.
-      </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-2">
         <input
           type="text"
@@ -62,7 +59,9 @@ export default function RepoScan({ onFindings }) {
         </p>
       )}
       {done && !error && (
-        <p className="text-clear text-sm mt-3">Added to your dossier below ↓</p>
+        <p className="text-clear text-sm mt-3">
+          Added to your dossier — view it under Dossier ↑
+        </p>
       )}
     </FolderSection>
   )
