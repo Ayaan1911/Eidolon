@@ -1,12 +1,19 @@
 @import "tailwindcss";
 
 @theme {
-  --color-paper: #e4dcc8;
-  --color-paper-raised: #f5f1e6;
-  --color-ink: #241f18;
+  /* Dark room */
+  --color-void: #17130f;
+  --color-parchment: #ede6d6;
+  --color-parchment-dim: #a89b82;
+
+  /* Lit paper (cards / sections) */
+  --color-paper: #e8dfc9;
+  --color-paper-raised: #f2ead6;
+  --color-ink: #241c13;
   --color-ink-soft: #5b5245;
   --color-line: #c9bfa8;
-  --color-redact: #8b2e2e;
+
+  --color-redact: #c63a2e;
   --color-redact-soft: #efd9d3;
   --color-clear: #3f5c3f;
 
@@ -15,7 +22,32 @@
   --font-mono: "IBM Plex Mono", ui-monospace, "Courier New", monospace;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
-  background: var(--color-paper);
-  color: var(--color-ink);
+  background: var(--color-void);
+  color: var(--color-parchment);
+}
+
+/* Rubber-stamp status badge — bordered, rotated, ink-bled edge.
+   Color comes from a text-* utility; border/shadow track currentColor. */
+.stamp {
+  display: inline-block;
+  transform: rotate(-7deg);
+  border: 2px solid currentColor;
+  border-radius: 3px;
+  padding: 0.2em 0.55em 0.14em;
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0.92;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, currentColor 22%, transparent),
+    2px 2px 0 -1px color-mix(in srgb, currentColor 16%, transparent);
+  text-shadow: 0 0 1px color-mix(in srgb, currentColor 30%, transparent);
 }

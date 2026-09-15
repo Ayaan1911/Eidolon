@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { createTrap } from "../services/api"
+import Stamp from "./Stamp"
 
 const trapTips = {
   secret:
@@ -34,7 +35,7 @@ function RedactedValue({ value }) {
   )
 }
 
-export default function FindingCard({ finding, sourceLabel, accentClass, badge }) {
+export default function FindingCard({ finding, sourceLabel, accentClass, stamp }) {
   const [trap, setTrap] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -76,22 +77,18 @@ export default function FindingCard({ finding, sourceLabel, accentClass, badge }
       className={`border border-line border-l-[3px] ${accentClass} bg-paper-raised px-4 py-3 flex items-start gap-3`}
     >
       <div className="flex-1">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-3 mb-1">
           <span className="font-mono text-[10px] uppercase tracking-wider border border-line px-1.5 py-0.5 text-ink-soft">
             {sourceLabel}
           </span>
-          <span
-            className={`font-mono text-[10px] uppercase tracking-wider border px-1.5 py-0.5 ${badge.className}`}
-          >
-            {badge.label}
-          </span>
+          <Stamp label={stamp.label} tone={stamp.tone} />
         </div>
 
-        <p className="text-ink mt-0.5">{finding.summary}</p>
+        <p className="text-ink mt-1">{finding.summary}</p>
 
         {finding.type === "secret" && finding.raw?.masked_value && (
-          <p className="mt-1.5 text-xs text-ink-soft flex items-center gap-1.5">
-            <span className="uppercase tracking-wider text-[10px]">Exposed value</span>
+          <p className="mt-2 text-xs text-ink-soft flex items-center gap-2">
+            <Stamp label="EXPOSED" tone="exposed" />
             <span className="font-mono">
               <RedactedValue value={finding.raw.masked_value} />
             </span>
@@ -99,9 +96,9 @@ export default function FindingCard({ finding, sourceLabel, accentClass, badge }
         )}
 
         {trap && (
-          <div className="mt-2 text-sm">
-            <p className="text-ink-soft">
-              Trap deployed:{" "}
+          <div className="mt-3 text-sm">
+            <p className="text-ink-soft flex items-center gap-2 flex-wrap">
+              <Stamp label="DEPLOYED" tone="deployed" />
               <button
                 type="button"
                 onClick={copyUrl}
@@ -109,9 +106,9 @@ export default function FindingCard({ finding, sourceLabel, accentClass, badge }
               >
                 {trap.trap_url}
               </button>
-              {copied && <span className="text-clear text-xs ml-2">Copied</span>}
+              {copied && <span className="text-clear text-xs">Copied</span>}
             </p>
-            <p className="text-ink-soft text-xs mt-1">{trapTips[finding.type]}</p>
+            <p className="text-ink-soft text-xs mt-1.5">{trapTips[finding.type]}</p>
           </div>
         )}
         {error && <p className="text-redact text-sm mt-2">{error}</p>}

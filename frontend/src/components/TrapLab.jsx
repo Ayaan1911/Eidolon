@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { createTrap, getTrapAlerts } from "../services/api"
+import Stamp from "./Stamp"
 
 export default function TrapLab() {
   const [name, setName] = useState("")
@@ -31,7 +32,7 @@ export default function TrapLab() {
   }
 
   return (
-    <div className="border border-dashed border-line px-4 py-3 opacity-90">
+    <div className="border border-dashed border-line bg-paper-raised px-4 py-3">
       <h2 className="font-display text-xs uppercase tracking-[0.15em] text-ink-soft mb-1">
         Trap Lab
       </h2>
@@ -63,8 +64,8 @@ export default function TrapLab() {
 
       {trap && (
         <div className="mt-3 text-sm">
-          <p className="text-ink-soft">
-            Trap URL:{" "}
+          <p className="text-ink-soft flex items-center gap-2 flex-wrap">
+            <Stamp label="DEPLOYED" tone="deployed" />
             <a
               href={trap.trap_url}
               target="_blank"
