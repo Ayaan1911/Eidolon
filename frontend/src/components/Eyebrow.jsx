@@ -1,6 +1,16 @@
-// Section kicker: the canonical 2px redact rule (the one accent) + a neutral
-// mono label. Used sitewide so the accent reads as one signature.
-export default function Eyebrow({ children, className = "" }) {
+// Section kicker. The one accent, two weights:
+//   tick — a 2px redact rule + neutral label (quiet, e.g. footer)
+//   chip — a solid redact block, parchment label (load-bearing, on sections)
+export default function Eyebrow({ children, className = "", variant = "tick" }) {
+  if (variant === "chip") {
+    return (
+      <span
+        className={`inline-block bg-redact text-parchment font-mono text-[11px] uppercase tracking-[0.25em] px-2.5 py-1 ${className}`}
+      >
+        {children}
+      </span>
+    )
+  }
   return (
     <p
       className={`flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.25em] text-parchment-dim ${className}`}

@@ -44,30 +44,39 @@ const longform = "text-parchment-dim leading-relaxed md:columns-2 md:gap-10"
 export default function Home() {
   return (
     <div>
-      {/* 1 — Hero */}
-      <header className="relative pt-6 pb-16">
+      {/* 1 — Hero: oversized, declarative, one big red statement. */}
+      <header className="relative pt-16 sm:pt-24 pb-20 sm:pb-28">
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 h-72 w-[36rem] max-w-full"
+          className="pointer-events-none absolute -top-16 left-0 h-96 w-[42rem] max-w-full"
           style={{
             background:
-              "radial-gradient(closest-side, rgba(224,166,90,0.28), rgba(224,166,90,0.10) 45%, transparent 72%)",
+              "radial-gradient(closest-side, rgba(224,166,90,0.30), rgba(224,166,90,0.10) 45%, transparent 72%)",
           }}
         />
-        <h1 className="relative font-display text-6xl sm:text-7xl text-parchment leading-[0.92] tracking-tight mb-5">
+        <p className="relative flex items-center gap-3 font-mono text-[11px] sm:text-xs uppercase tracking-[0.3em] text-parchment-dim mb-8">
+          <span className="inline-block w-10 h-[2px] bg-redact" aria-hidden />
+          Case File — Subject: You
+        </p>
+        <h1 className="relative font-display text-parchment leading-[0.85] tracking-tight text-[3.75rem] sm:text-8xl lg:text-[7.5rem] mb-9">
           Your Eidolon
         </h1>
-        <p className="relative text-base text-parchment-dim max-w-md leading-relaxed">
-          See what can be discovered about you without your knowing — before
-          someone else assembles it first. Run any check; the findings build up
-          into a running dossier.
+        <div className="relative mb-9 inline-block -rotate-1 bg-redact px-4 py-2.5 shadow-[3px_3px_0_rgba(0,0,0,0.25)]">
+          <span className="font-mono text-sm sm:text-base uppercase tracking-[0.18em] text-void font-semibold">
+            The file a stranger could build on you
+          </span>
+        </div>
+        <p className="relative text-lg sm:text-2xl text-parchment max-w-xl leading-snug">
+          Run a check. Everything a stranger could piece together about you
+          assembles into one dossier —
+          <span className="text-parchment-dim"> so you're the one who sees it first.</span>
         </p>
       </header>
 
       {/* 2 — The Mirror */}
       <Reveal>
         <section className="py-20 sm:py-28 border-t border-line/15">
-          <Eyebrow className="mb-4">The Mirror</Eyebrow>
+          <Eyebrow variant="chip" className="mb-6">The Mirror</Eyebrow>
           <h2 className={`${headline} mb-6 max-w-xl`}>
             You can't defend what you don't <Em>know</Em> is exposed.
           </h2>
@@ -82,7 +91,7 @@ export default function Home() {
           <div className="flex flex-col gap-14">
             {tools.map((t, i) => (
               <Reveal key={t.to} delay={i * 80}>
-                <div className="border-l-2 border-redact pl-5 sm:pl-6">
+                <div className="border-l-4 border-redact pl-5 sm:pl-6">
                   <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-parchment-dim mb-2">
                     {t.n} — Mirror
                   </p>
@@ -115,7 +124,7 @@ export default function Home() {
           </div>
           <div className="relative">
             <div className="flex justify-end">
-              <Eyebrow className="mb-4">The Dossier</Eyebrow>
+              <Eyebrow variant="chip" className="mb-6">The Dossier</Eyebrow>
             </div>
             <h2 className={`${headline} mb-6 text-right`}>
               Three checks. <Em>One</Em> case file.
@@ -135,21 +144,23 @@ export default function Home() {
         </section>
       </Reveal>
 
-      {/* 4 — The Trap (large faint DEPLOYED stamp behind) */}
+      {/* 4 — The Trap: the load-bearing red block. */}
       <Reveal>
-        <section className="relative py-20 sm:py-28 border-t border-line/15 overflow-hidden">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute top-8 right-0 origin-top-right scale-[2.8] opacity-[0.16] hidden sm:block"
-          >
-            <Stamp label="DEPLOYED" tone="deployed" />
-          </div>
-          <div className="relative">
-            <Eyebrow className="mb-4">The Trap</Eyebrow>
-            <h2 className={`${headline} mb-6 max-w-2xl`}>
+        <section className="py-10 sm:py-14">
+          <div className="relative overflow-hidden bg-redact text-parchment px-6 sm:px-10 py-14 sm:py-20 shadow-[6px_6px_0_rgba(0,0,0,0.25)]">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute top-6 right-2 origin-top-right scale-[3] opacity-15 hidden sm:block"
+            >
+              <Stamp label="DEPLOYED" className="!text-void" />
+            </div>
+            <Eyebrow variant="chip" className="mb-6 !bg-void !text-redact">
+              The Trap
+            </Eyebrow>
+            <h2 className="font-display text-4xl sm:text-5xl tracking-tight leading-[1.05] mb-6 max-w-2xl text-parchment">
               Stop watching the mirror. Watch <Em>who</Em> steps up to it.
             </h2>
-            <p className={`${longform} mb-8`}>
+            <p className="leading-relaxed max-w-xl mb-8 text-parchment/90">
               Knowing where you're exposed is only half of it. Once a weak point is
               on the page, you can leave something there — a canary that looks like
               a working credential, a link worth snooping — that quietly logs
@@ -157,7 +168,7 @@ export default function Home() {
               carries that finding's context with it: when the trap trips, you know
               exactly which exposure they were following, and who followed it.
             </p>
-            <Cta to="/trap-lab">Set a trap →</Cta>
+            <Cta to="/trap-lab" variant="solid">Set a trap →</Cta>
           </div>
         </section>
       </Reveal>
@@ -169,7 +180,7 @@ export default function Home() {
             The most honest picture of you is the one you never meant to leave.
             Better to find it <Em>first</Em>.
           </p>
-          <Cta to="/email" variant="solid" className="px-6 py-3 text-sm">
+          <Cta to="/email" variant="danger" className="px-6 py-3 text-sm">
             Start with your email →
           </Cta>
         </section>

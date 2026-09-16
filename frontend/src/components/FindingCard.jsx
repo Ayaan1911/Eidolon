@@ -2,6 +2,7 @@ import { useState } from "react"
 import { createTrap } from "../services/api"
 import Stamp from "./Stamp"
 import ErrorNote from "./ErrorNote"
+import ReasoningPanel from "./ReasoningPanel"
 
 const trapTips = {
   secret:
@@ -41,6 +42,7 @@ export default function FindingCard({ finding, sourceLabel, accentClass, stamp }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState(false)
+  const [showReason, setShowReason] = useState(false)
 
   const canTrap = finding.type === "breach" || finding.type === "secret"
 
@@ -95,6 +97,17 @@ export default function FindingCard({ finding, sourceLabel, accentClass, stamp }
             </span>
           </p>
         )}
+
+        <div className="mt-2.5">
+          <button
+            type="button"
+            onClick={() => setShowReason((v) => !v)}
+            className="font-mono text-[11px] uppercase tracking-wider text-ink-soft hover:text-ink underline decoration-line hover:decoration-ink underline-offset-2"
+          >
+            {showReason ? "Hide case notes ↑" : "Why this matters →"}
+          </button>
+        </div>
+        {showReason && <ReasoningPanel finding={finding} stamp={stamp} />}
 
         {trap && (
           <div className="mt-3 text-sm">
