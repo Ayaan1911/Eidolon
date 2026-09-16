@@ -53,10 +53,10 @@ export default function PhotoCheck() {
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
         className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed py-8 px-4 cursor-pointer transition-colors ${
-          dragOver ? "border-ink bg-paper" : "border-line"
+          dragOver ? "border-edge bg-slate" : "border-hairline"
         }`}
       >
-        <span className="text-ink-soft text-sm">
+        <span className="text-fg-dim text-sm">
           {loading ? "Analyzing..." : "Drop a photo here, or click to choose one"}
         </span>
         <input
@@ -69,7 +69,7 @@ export default function PhotoCheck() {
       </label>
       {error && <ErrorNote>{error}</ErrorNote>}
       {done && !error && (
-        <p className="text-clear text-sm mt-3">
+        <p className="text-fg-dim text-sm mt-3">
           Added to your dossier — view it under Dossier ↑
         </p>
       )}

@@ -1,10 +1,14 @@
+// Quiet hairline-bordered card with a mono section label (the case-file
+// folder-tab is retired).
 export default function FolderSection({ label, children }) {
   return (
-    <section className="relative mt-4">
-      <span className="absolute -top-3 left-4 bg-paper-raised border border-line border-b-0 px-3 py-1 font-display text-[11px] uppercase tracking-[0.2em] text-ink-soft">
-        {label}
-      </span>
-      <div className="border border-line bg-paper-raised px-4 pt-6 pb-4">{children}</div>
+    <section className="border border-hairline bg-graphite max-w-2xl">
+      <div className="border-b border-hairline px-4 py-2.5">
+        <span className="font-mono text-[11px] uppercase tracking-[0.25em] text-fg-faint">
+          {label}
+        </span>
+      </div>
+      <div className="px-4 py-4">{children}</div>
     </section>
   )
 }

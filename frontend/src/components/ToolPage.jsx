@@ -1,13 +1,15 @@
-// Shared frame for a single tool route: a page-level intro block (on the dark
-// background) above the tool's own form/card.
+import Eyebrow from "./Eyebrow"
+
+// Shared frame for a single tool route: a quiet serif header above the tool.
 export default function ToolPage({ title, intro, children }) {
   return (
     <div>
-      <header className="mb-8">
-        <h1 className="font-display text-4xl text-parchment tracking-tight mb-3">
+      <header className="mb-8 max-w-2xl">
+        <Eyebrow className="mb-4">Eidolon</Eyebrow>
+        <h1 className="font-serif text-4xl sm:text-5xl text-fg tracking-tight mb-4">
           {title}
         </h1>
-        <p className="text-parchment-dim leading-relaxed max-w-xl">{intro}</p>
+        <p className="text-fg-dim leading-relaxed">{intro}</p>
       </header>
       {children}
     </div>

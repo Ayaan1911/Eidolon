@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { createTrap } from "../services/api"
-import Stamp from "./Stamp"
+import Tag from "./Tag"
 import ErrorNote from "./ErrorNote"
 import ReasoningPanel from "./ReasoningPanel"
 
@@ -11,15 +11,14 @@ const trapTips = {
     "Use this as a canary link anywhere you'd expect phishing aimed at that email to lead.",
 }
 
-// Renders a masked secret value ("AKIA...N7EX" or "****") as a censored
-// document would: visible characters stay text, the hidden span becomes a
-// solid ink bar instead of literal dots/asterisks.
+// A masked secret value ("AKIA...N7EX") shown as a censored line: visible
+// characters stay text, the hidden span becomes a solid neutral block.
 function RedactedValue({ value }) {
   const dotsIndex = value.indexOf("...")
   if (dotsIndex === -1) {
     return (
       <span
-        className="inline-block align-middle bg-ink h-[0.85em]"
+        className="inline-block align-middle bg-fg-faint h-[0.85em]"
         style={{ width: `${Math.min(Math.max(value.length, 4), 16) * 0.55}em` }}
         aria-label="redacted value"
       />
@@ -28,16 +27,13 @@ function RedactedValue({ value }) {
   return (
     <span className="align-middle">
       {value.slice(0, dotsIndex)}
-      <span
-        className="inline-block align-middle bg-ink h-[0.85em] w-6 mx-0.5"
-        aria-hidden
-      />
+      <span className="inline-block align-middle bg-fg-faint h-[0.85em] w-6 mx-0.5" aria-hidden />
       {value.slice(dotsIndex + 3)}
     </span>
   )
 }
 
-export default function FindingCard({ finding, sourceLabel, accentClass, stamp }) {
+export default function FindingCard({ finding, sourceLabel, status }) {
   const [trap, setTrap] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -71,30 +67,29 @@ export default function FindingCard({ finding, sourceLabel, accentClass, stamp }
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch {
-      // Clipboard API unavailable (e.g. insecure context) — URL is still visible to copy manually.
+      // Clipboard unavailable — URL is still visible to copy manually.
     }
   }
 
   return (
-    <div
-      className={`border border-line border-l-2 ${accentClass} bg-paper-raised px-4 py-3 flex items-start gap-3`}
-    >
-      <div className="flex-1">
-        <div className="flex items-center gap-3 mb-1">
-          <span className="font-mono text-[10px] uppercase tracking-wider border border-line px-1.5 py-0.5 text-ink-soft">
+    <div className="py-4 flex items-start justify-between gap-4">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-3 mb-1.5">
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-faint">
             {sourceLabel}
           </span>
-          <Stamp label={stamp.label} tone={stamp.tone} />
+          {finding.type === "secret" && finding.raw?.masked_value && (
+            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-faint">
+              Exposed
+            </span>
+          )}
         </div>
 
-        <p className="text-ink mt-1">{finding.summary}</p>
+        <p className="text-fg leading-relaxed">{finding.summary}</p>
 
         {finding.type === "secret" && finding.raw?.masked_value && (
-          <p className="mt-2 text-xs text-ink-soft flex items-center gap-2">
-            <Stamp label="EXPOSED" tone="exposed" />
-            <span className="font-mono">
-              <RedactedValue value={finding.raw.masked_value} />
-            </span>
+          <p className="mt-1.5 font-mono text-xs text-fg-dim">
+            <RedactedValue value={finding.raw.masked_value} />
           </p>
         )}
 
@@ -102,42 +97,45 @@ export default function FindingCard({ finding, sourceLabel, accentClass, stamp }
           <button
             type="button"
             onClick={() => setShowReason((v) => !v)}
-            className="font-mono text-[11px] uppercase tracking-wider text-ink-soft hover:text-ink underline decoration-line hover:decoration-ink underline-offset-2"
+            className="font-mono text-[11px] uppercase tracking-[0.15em] text-fg-faint hover:text-fg transition-colors"
           >
-            {showReason ? "Hide case notes ↑" : "Why this matters →"}
+            {showReason ? "Hide reasoning ↑" : "Why this matters →"}
           </button>
         </div>
-        {showReason && <ReasoningPanel finding={finding} stamp={stamp} />}
+        {showReason && <ReasoningPanel finding={finding} />}
 
         {trap && (
           <div className="mt-3 text-sm">
-            <p className="text-ink-soft flex items-center gap-2 flex-wrap">
-              <Stamp label="DEPLOYED" tone="deployed" />
+            <p className="flex items-center gap-2 flex-wrap text-fg-dim">
+              <Tag label="Deployed" />
               <button
                 type="button"
                 onClick={copyUrl}
-                className="font-mono text-ink underline decoration-line hover:decoration-ink"
+                className="font-mono text-fg underline decoration-hairline hover:decoration-edge"
               >
                 {trap.trap_url}
               </button>
-              {copied && <span className="text-clear text-xs">Copied</span>}
+              {copied && <span className="text-fg-faint text-xs">Copied</span>}
             </p>
-            <p className="text-ink-soft text-xs mt-1.5">{trapTips[finding.type]}</p>
+            <p className="text-fg-faint text-xs mt-1.5 leading-relaxed">{trapTips[finding.type]}</p>
           </div>
         )}
         {error && <ErrorNote>{error}</ErrorNote>}
       </div>
 
-      {canTrap && !trap && (
-        <button
-          type="button"
-          onClick={deployTrap}
-          disabled={loading}
-          className="text-xs font-medium border border-ink text-ink px-3 py-1 shrink-0 uppercase tracking-wide hover:bg-ink hover:text-paper-raised disabled:opacity-50"
-        >
-          {loading ? "Deploying..." : "Trap this →"}
-        </button>
-      )}
+      <div className="flex flex-col items-end gap-2.5 shrink-0">
+        <Tag label={status.label} tone={status.tone} />
+        {canTrap && !trap && (
+          <button
+            type="button"
+            onClick={deployTrap}
+            disabled={loading}
+            className="rounded-full border border-hairline px-3 py-1 text-xs text-fg-dim hover:text-fg hover:border-edge disabled:opacity-50 transition-colors"
+          >
+            {loading ? "Deploying…" : "Trap this →"}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

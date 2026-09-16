@@ -40,19 +40,19 @@ export default function EmailCheck() {
             setDone(false)
           }}
           placeholder="you@example.com"
-          className="border border-line bg-paper px-4 py-2 text-ink placeholder:text-ink-soft/60 focus:outline-none focus:border-ink"
+          className="border border-hairline bg-slate px-4 py-2.5 text-fg placeholder:text-fg-faint focus:outline-none focus:border-edge"
         />
         <button
           type="submit"
           disabled={loading}
-          className="bg-ink text-paper-raised px-4 py-2 font-medium uppercase tracking-wide text-sm hover:opacity-90 disabled:opacity-50"
+          className="self-start rounded-full bg-beacon text-on-beacon px-5 py-2.5 text-sm font-medium hover:bg-beacon/90 disabled:opacity-50"
         >
           {loading ? "Checking..." : "Check my exposure"}
         </button>
       </form>
       {error && <ErrorNote>{error}</ErrorNote>}
       {done && !error && (
-        <p className="text-clear text-sm mt-3">
+        <p className="text-fg-dim text-sm mt-3">
           Added to your dossier — view it under Dossier ↑
         </p>
       )}

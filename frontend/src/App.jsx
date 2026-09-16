@@ -8,6 +8,7 @@ import PhotoCheck from "./components/PhotoCheck"
 import RepoScan from "./components/RepoScan"
 import Dossier from "./components/Dossier"
 import TrapLab from "./components/TrapLab"
+import System from "./components/System"
 
 // Per-route intro copy — the Mirror/Dossier voice, one or two sentences each.
 const intro = {
@@ -21,6 +22,8 @@ const intro = {
     "Everything Eidolon finds collects here — one running case file that grows as you run each check. What a stranger could assemble about you, assembled in one place.",
   trapLab:
     "The other side of the mirror. Spin up a standalone canary — a link that quietly logs whoever opens it — without tying it to a finding. Deploy one, leave it where a snoop would look, and watch who bites.",
+  system:
+    "Eidolon's own design system, laid bare — the surfaces, the one accent, the type, the tokens behind them. Set your preferences here too.",
 }
 
 export default function App() {
@@ -66,6 +69,14 @@ export default function App() {
             element={
               <ToolPage title="Trap Lab" intro={intro.trapLab}>
                 <TrapLab />
+              </ToolPage>
+            }
+          />
+          <Route
+            path="system"
+            element={
+              <ToolPage title="System" intro={intro.system}>
+                <System />
               </ToolPage>
             }
           />

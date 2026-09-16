@@ -1,24 +1,27 @@
 @import "tailwindcss";
 
 @theme {
-  /* Dark room */
-  --color-void: #17130f;
-  --color-parchment: #ede6d6;
-  --color-parchment-dim: #a89b82;
+  /* Three surface tiers, stepped by value (not hue). */
+  --color-obsidian: #0d0d0f;
+  --color-graphite: #151517;
+  --color-slate: #1c1c1f;
 
-  /* Lit paper (cards / sections) */
-  --color-paper: #e8dfc9;
-  --color-paper-raised: #f2ead6;
-  --color-ink: #241c13;
-  --color-ink-soft: #5b5245;
-  --color-line: #c9bfa8;
+  /* Hairlines — the only separation device (zero shadows). */
+  --color-hairline: #2a2a2e;
+  --color-edge: #3a3a40;
 
-  --color-redact: #c63a2e;
-  --color-clear: #3f5c3f;
+  /* Monochrome text tiers. */
+  --color-fg: #d7d5d0;
+  --color-fg-dim: #96958f;
+  --color-fg-faint: #66655f;
 
-  --font-display: "Special Elite", "Courier New", monospace;
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "Courier New", monospace;
+  /* The one accent — a warm, quiet off-white. Used sparingly. */
+  --color-beacon: #e9e2d0;
+  --color-on-beacon: #14130f;
+
+  --font-serif: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
 
 html {
@@ -26,37 +29,27 @@ html {
 }
 
 body {
-  background: var(--color-void);
-  color: var(--color-parchment);
+  background: var(--color-obsidian);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Rubber-stamp status badge — bordered, rotated, ink-bled edge.
-   Color comes from a text-* utility; border/shadow track currentColor. */
-.stamp {
-  display: inline-block;
-  transform: rotate(-7deg);
-  border: 2px solid currentColor;
-  border-radius: 3px;
-  padding: 0.2em 0.55em 0.14em;
-  font-family: var(--font-display);
-  font-size: 0.7rem;
-  line-height: 1;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  opacity: 0.92;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, currentColor 22%, transparent),
-    2px 2px 0 -1px color-mix(in srgb, currentColor 16%, transparent);
-  text-shadow: 0 0 1px color-mix(in srgb, currentColor 30%, transparent);
+/* The accent, applied only as a focus ring. */
+:focus-visible {
+  outline: 1px solid var(--color-beacon);
+  outline-offset: 2px;
 }
 
-/* ── Motion ─────────────────────────────────────────────────────────
-   Scroll-reveal, route transition, live pulse. All CSS-driven (no lib);
-   fully disabled under prefers-reduced-motion. */
+::selection {
+  background: var(--color-beacon);
+  color: var(--color-on-beacon);
+}
+
+/* ── Motion — CSS-driven, disabled under reduced-motion ──────────── */
 .reveal {
   opacity: 0;
-  transform: translateY(26px);
+  transform: translateY(22px);
   transition: opacity 0.6s ease, transform 0.6s ease;
 }
 .reveal.is-visible {
@@ -72,18 +65,18 @@ body {
   to { opacity: 1; transform: none; }
 }
 
-/* Live indicator for the trap signal stream — a pulsing ring. */
+/* Quiet live indicator (signal stream) — a monochrome pulse, no color. */
 .live-dot {
   display: inline-block;
-  width: 0.5rem;
-  height: 0.5rem;
+  width: 0.45rem;
+  height: 0.45rem;
   border-radius: 9999px;
-  background: var(--color-clear);
-  animation: live-pulse 1.8s ease-out infinite;
+  background: var(--color-fg-dim);
+  animation: live-pulse 2s ease-out infinite;
 }
 @keyframes live-pulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-clear) 55%, transparent); }
-  70% { box-shadow: 0 0 0 6px transparent; }
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-fg-dim) 50%, transparent); }
+  70% { box-shadow: 0 0 0 5px transparent; }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
 
@@ -93,3 +86,8 @@ body {
   .page-enter { animation: none; }
   .live-dot { animation: none; }
 }
+
+/* Manual override from Settings — forces motion off. */
+.reduce-motion .reveal { opacity: 1; transform: none; transition: none; }
+.reduce-motion .page-enter { animation: none; }
+.reduce-motion .live-dot { animation: none; }
