@@ -42,7 +42,7 @@ Mirror findings) aren't built yet.
 - **Mirror** — complete: all three checks above are built and working end to end.
 - **Trap** — in progress:
   - [x] Honeytoken (self-verifying decoy API key, ntfy alert)
-  - [ ] Wire honeytoken generation into Mirror dossier findings
+  - [x] Wire honeytoken generation into Mirror dossier findings
 
 `legacy/` holds the previous implementation for reference only — it isn't part of the build.
 
