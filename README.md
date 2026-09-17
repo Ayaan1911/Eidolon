@@ -33,7 +33,7 @@ false confidence, so Eidolon sticks to narrative findings with full reasoning in
 
 **The Trap** plants deception tied to what the Mirror finds, so if someone acts on that exposure, you
 know. Right now that's one working trap type: a decoy API key (`eidolon_live_...`) that's
-self-verifying via an HMAC signature — no database required — and posts a Discord alert with the
+self-verifying via an HMAC signature — no database required — and posts an ntfy alert with the
 requester's IP and rough geolocation the moment it's used. Other trap types (tied directly to
 Mirror findings) aren't built yet.
 
@@ -41,7 +41,7 @@ Mirror findings) aren't built yet.
 
 - **Mirror** — complete: all three checks above are built and working end to end.
 - **Trap** — in progress:
-  - [x] Honeytoken (self-verifying decoy API key, Discord webhook alert)
+  - [x] Honeytoken (self-verifying decoy API key, ntfy alert)
   - [ ] Wire honeytoken generation into Mirror dossier findings
 
 `legacy/` holds the previous implementation for reference only — it isn't part of the build.
