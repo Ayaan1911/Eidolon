@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { createTrap } from "../services/api"
+import { createTrap, deployDecoy } from "../services/api"
 import Tag from "./Tag"
 import ErrorNote from "./ErrorNote"
 import ReasoningPanel from "./ReasoningPanel"
@@ -9,6 +9,10 @@ const trapTips = {
     "Replace the exposed value at that file/line with this link disguised as a working credential — a scraper that tries to use it trips the trap instead.",
   breach:
     "Use this as a canary link anywhere you'd expect phishing aimed at that email to lead.",
+}
+
+function clockTime(date) {
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
 }
 
 // A masked secret value ("AKIA...N7EX") shown as a censored line: visible
@@ -40,7 +44,13 @@ export default function FindingCard({ finding, sourceLabel, status }) {
   const [copied, setCopied] = useState(false)
   const [showReason, setShowReason] = useState(false)
 
+  const [decoy, setDecoy] = useState(null)
+  const [decoyLoading, setDecoyLoading] = useState(false)
+  const [decoyError, setDecoyError] = useState(null)
+  const [decoyCopied, setDecoyCopied] = useState(false)
+
   const canTrap = finding.type === "breach" || finding.type === "secret"
+  const canDeployDecoy = finding.type === "secret"
 
   async function deployTrap() {
     setLoading(true)
@@ -68,6 +78,29 @@ export default function FindingCard({ finding, sourceLabel, status }) {
       setTimeout(() => setCopied(false), 1500)
     } catch {
       // Clipboard unavailable — URL is still visible to copy manually.
+    }
+  }
+
+  async function handleDeployDecoy() {
+    setDecoyLoading(true)
+    setDecoyError(null)
+    try {
+      const result = await deployDecoy(finding.id)
+      setDecoy({ ...result, deployedAt: new Date() })
+    } catch (err) {
+      setDecoyError(err.message)
+    } finally {
+      setDecoyLoading(false)
+    }
+  }
+
+  async function copyDecoy() {
+    try {
+      await navigator.clipboard.writeText(decoy.token)
+      setDecoyCopied(true)
+      setTimeout(() => setDecoyCopied(false), 1500)
+    } catch {
+      // Clipboard unavailable — key is still visible to copy manually.
     }
   }
 
@@ -121,6 +154,32 @@ export default function FindingCard({ finding, sourceLabel, status }) {
           </div>
         )}
         {error && <ErrorNote>{error}</ErrorNote>}
+
+        {decoy && (
+          <div className="mt-3 text-sm">
+            <p className="flex items-center gap-2 flex-wrap text-fg-dim">
+              <Tag label={`Trap deployed · ${clockTime(decoy.deployedAt)}`} />
+              <button
+                type="button"
+                onClick={copyDecoy}
+                className="font-mono text-fg underline decoration-hairline hover:decoration-edge break-all"
+              >
+                {decoy.token}
+              </button>
+              {decoyCopied && <span className="text-fg-faint text-xs">Copied</span>}
+            </p>
+            <p className="text-fg-faint text-xs mt-1">
+              Base URL: <span className="font-mono text-fg-dim">{decoy.base_url}</span>
+            </p>
+            <p className="text-fg-faint text-xs mt-1.5 leading-relaxed">
+              This doesn't replace rotating or revoking the real secret — do that first.
+              Then place this key and base URL in the exact spot the real one was. If
+              someone already copied the real value before you rotated it, using this
+              decoy is what catches them.
+            </p>
+          </div>
+        )}
+        {decoyError && <ErrorNote>{decoyError}</ErrorNote>}
       </div>
 
       <div className="flex flex-col items-end gap-2.5 shrink-0">
@@ -133,6 +192,16 @@ export default function FindingCard({ finding, sourceLabel, status }) {
             className="rounded-full border border-hairline px-3 py-1 text-xs text-fg-dim hover:text-fg hover:border-edge disabled:opacity-50 transition-colors"
           >
             {loading ? "Deploying…" : "Trap this →"}
+          </button>
+        )}
+        {canDeployDecoy && !decoy && (
+          <button
+            type="button"
+            onClick={handleDeployDecoy}
+            disabled={decoyLoading}
+            className="rounded-full border border-hairline px-3 py-1 text-xs text-fg-dim hover:text-fg hover:border-edge disabled:opacity-50 transition-colors"
+          >
+            {decoyLoading ? "Deploying…" : "Deploy a decoy →"}
           </button>
         )}
       </div>

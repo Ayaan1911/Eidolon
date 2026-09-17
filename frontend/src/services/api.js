@@ -43,6 +43,15 @@ export function createTrap({ name, source_type, context }) {
   return postJson("/api/traps", { name, source_type, context })
 }
 
+export async function deployDecoy(findingId) {
+  const res = await fetch(`${API_BASE}/api/findings/${findingId}/deploy-decoy`, { method: "POST" })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail || `Request failed (${res.status})`)
+  }
+  return res.json()
+}
+
 export async function getTrapAlerts() {
   const res = await fetch(`${API_BASE}/api/traps/alerts`)
   if (!res.ok) {

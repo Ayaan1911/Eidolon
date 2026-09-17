@@ -80,8 +80,15 @@ async def trigger_trap(trap_id: str, request: Request, db: Session = Depends(get
 
 
 @router.post("/api/traps/honeytoken", response_model=HoneytokenResponse)
-async def create_honeytoken() -> HoneytokenResponse:
-    return HoneytokenResponse(token=generate_token())
+async def create_honeytoken(request: Request) -> HoneytokenResponse:
+    return HoneytokenResponse(token=generate_token(), base_url=str(request.base_url).rstrip("/"))
+
+
+@router.post("/api/findings/{finding_id}/deploy-decoy", response_model=HoneytokenResponse)
+async def deploy_decoy(finding_id: str, request: Request) -> HoneytokenResponse:
+    return HoneytokenResponse(
+        token=generate_token(finding_id), base_url=str(request.base_url).rstrip("/")
+    )
 
 
 @router.get("/api/internal/verify")

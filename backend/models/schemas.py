@@ -92,3 +92,4 @@ class AlertResponse(BaseModel):
 
 class HoneytokenResponse(BaseModel):
     token: str
+    base_url: str
