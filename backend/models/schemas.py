@@ -88,3 +88,7 @@ class AlertResponse(BaseModel):
     timestamp: str
     source_type: str | None = None
     context: str | None = None
+
+
+class HoneytokenResponse(BaseModel):
+    token: str
