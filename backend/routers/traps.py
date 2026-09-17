@@ -9,9 +9,9 @@ from user_agents import parse
 
 from database import Alert, Trap, get_db
 from models.schemas import AlertResponse, HoneytokenResponse, TrapCreateRequest, TrapCreateResponse
-from services.discord_alert import send_discord_alert
 from services.geolocation import lookup_ip
 from services.honeytoken import generate_token, is_valid_token
+from services.ntfy_alert import send_ntfy_alert
 
 router = APIRouter(tags=["traps"])
 
@@ -63,7 +63,7 @@ async def trigger_trap(trap_id: str, request: Request, db: Session = Depends(get
         trap.trigger_count += 1
     db.commit()
 
-    await send_discord_alert(
+    await send_ntfy_alert(
         f"Trap '{trap_name}' triggered",
         {
             "IP": alert.ip,
@@ -91,14 +91,14 @@ async def verify_key(request: Request) -> None:
     no match, the caller always sees the same generic auth failure.
 
     The token is self-verifying (HMAC signature, no DB lookup) and the
-    Discord message posted below is the only durable record of a trigger -
+    ntfy notification sent below is the only durable record of a trigger -
     Render's free tier wipes local disk on restart, so nothing here counts
     on state surviving between requests.
     """
     if is_valid_token(_extract_key(request)):
         ip = request.client.host if request.client else "unknown"
         geo = await lookup_ip(ip)
-        await send_discord_alert(
+        await send_ntfy_alert(
             "Honeytoken triggered",
             {
                 "Timestamp": datetime.utcnow().isoformat() + "Z",
