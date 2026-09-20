@@ -193,9 +193,7 @@ export default function TrapLab() {
         </div>
       </div>
 
-      <div className="mt-6 flex justify-end">
-        <AdminLogin admin={admin} onLogin={handleLogin} onLogout={handleLogout} />
-      </div>
+      <AdminLogin admin={admin} onLogin={handleLogin} onLogout={handleLogout} />
     </div>
   )
 }

@@ -8,3 +8,4 @@ Pillow
 python-multipart
 sqlalchemy
 user-agents
+python-dotenv
