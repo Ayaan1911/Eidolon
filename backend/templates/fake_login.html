@@ -79,13 +79,22 @@
       </p>
     </div>
     <h2>🔐 Admin Authentication</h2>
-    <form>
+    <form id="login">
       <input type="email" placeholder="Email" required />
       <input type="password" placeholder="Password" required />
       <button type="submit">Sign In</button>
     </form>
-    <div class="error">⚠️ Invalid credentials. Access denied.</div>
+    <div class="error" id="error" role="alert" hidden>⚠️ Invalid credentials. Access denied.</div>
   </div>
+  <script>
+    // The error only appears after a real submit (the browser's `required` check
+    // gates empty fields first). preventDefault: a native submit would reload the
+    // page, wiping the message and re-firing the trap alert.
+    document.getElementById("login").addEventListener("submit", function (e) {
+      e.preventDefault();
+      document.getElementById("error").hidden = false;
+    });
+  </script>
 </body>
 
 </html>
