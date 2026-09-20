@@ -1,3 +1,5 @@
+import { getAdminToken } from "../lib/adminAuth"
+
 // Dev falls back to the local backend; a production build must set VITE_API_BASE
 // (Vercel env var) or requests would silently target the visitor's own localhost.
 const configuredBase = import.meta.env.VITE_API_BASE
@@ -7,17 +9,29 @@ if (!configuredBase && !import.meta.env.DEV) {
 // Trailing slashes stripped so "https://host/" doesn't yield "https://host//api/...".
 const API_BASE = (configuredBase || "http://localhost:8001").replace(/\/+$/, "")
 
-async function postJson(path, body) {
+// Error carrying the HTTP status, so callers can tell a rejected admin token (401) from other failures.
+async function failure(res) {
+  const data = await res.json().catch(() => ({}))
+  return Object.assign(new Error(data.detail || `Request failed (${res.status})`), { status: res.status })
+}
+
+async function postJson(path, body, headers = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
   })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new Error(data.detail || `Request failed (${res.status})`)
-  }
+  if (!res.ok) throw await failure(res)
   return res.json()
+}
+
+function adminHeaders() {
+  const token = getAdminToken()
+  return token ? { Authorization: `Bearer ${token}` } : null
+}
+
+export function adminLogin(passphrase) {
+  return postJson("/api/admin/login", { passphrase })
 }
 
 export function checkEmailExposure(email) {
@@ -47,7 +61,9 @@ export async function checkPhotoMetadata(file) {
 }
 
 export function createTrap({ name, source_type, context }) {
-  return postJson("/api/traps", { name, source_type, context })
+  const headers = adminHeaders()
+  if (!headers) return Promise.reject(new Error("Deploying traps is admin-only in this public demo."))
+  return postJson("/api/traps", { name, source_type, context }, headers)
 }
 
 export async function deployDecoy(findingId) {
@@ -60,10 +76,7 @@ export async function deployDecoy(findingId) {
 }
 
 export async function getTrapAlerts() {
-  const res = await fetch(`${API_BASE}/api/traps/alerts`)
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new Error(data.detail || `Request failed (${res.status})`)
-  }
+  const res = await fetch(`${API_BASE}/api/traps/alerts`, { headers: adminHeaders() ?? {} })
+  if (!res.ok) throw await failure(res)
   return res.json()
 }

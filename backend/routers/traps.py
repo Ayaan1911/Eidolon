@@ -9,6 +9,7 @@ from user_agents import parse
 
 from database import Alert, Trap, get_db
 from models.schemas import AlertResponse, HoneytokenResponse, TrapCreateRequest, TrapCreateResponse
+from services.admin_auth import require_admin
 from services.geolocation import lookup_ip
 from services.honeytoken import generate_token, is_valid_token
 from services.ntfy_alert import send_ntfy_alert
@@ -28,7 +29,7 @@ def _extract_key(request: Request) -> str | None:
     return request.headers.get("x-api-key")
 
 
-@router.post("/api/traps", response_model=TrapCreateResponse)
+@router.post("/api/traps", response_model=TrapCreateResponse, dependencies=[Depends(require_admin)])
 async def create_trap(
     body: TrapCreateRequest, request: Request, db: Session = Depends(get_db)
 ) -> TrapCreateResponse:
@@ -118,7 +119,7 @@ async def verify_key(request: Request) -> None:
     raise HTTPException(status_code=401, detail=_INVALID_KEY_ERROR["detail"])
 
 
-@router.get("/api/traps/alerts", response_model=list[AlertResponse])
+@router.get("/api/traps/alerts", response_model=list[AlertResponse], dependencies=[Depends(require_admin)])
 async def list_alerts(db: Session = Depends(get_db)) -> list[AlertResponse]:
     rows = (
         db.query(Alert, Trap)

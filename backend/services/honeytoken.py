@@ -20,14 +20,14 @@ def _secret() -> bytes:
     return os.environ["HONEYTOKEN_SECRET"].encode()
 
 
-def _sign(payload: str) -> str:
+def sign(payload: str) -> str:
     return hmac.new(_secret(), payload.encode(), hashlib.sha256).hexdigest()
 
 
 def generate_token(finding_id: str | None = None) -> str:
     nonce = secrets.token_hex(16)
     payload = f"{nonce}:{finding_id}" if finding_id else nonce
-    return f"{TOKEN_PREFIX}{payload}.{_sign(payload)}"
+    return f"{TOKEN_PREFIX}{payload}.{sign(payload)}"
 
 
 def is_valid_token(token: str | None) -> bool:
@@ -37,7 +37,7 @@ def is_valid_token(token: str | None) -> bool:
     if not sep or not sig:
         return False
     try:
-        expected = _sign(payload)
+        expected = sign(payload)
     except KeyError:
         return False
     return hmac.compare_digest(sig, expected)

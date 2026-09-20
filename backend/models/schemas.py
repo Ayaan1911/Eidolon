@@ -90,6 +90,15 @@ class AlertResponse(BaseModel):
     context: str | None = None
 
 
+class AdminLoginRequest(BaseModel):
+    passphrase: str
+
+
+class AdminLoginResponse(BaseModel):
+    token: str
+    expires_at: int
+
+
 class HoneytokenResponse(BaseModel):
     token: str
     base_url: str
