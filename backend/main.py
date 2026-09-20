@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -10,9 +12,13 @@ app = FastAPI(title="Eidolon API")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Comma-separated deployed frontend origins, e.g. "https://eidolon.vercel.app" (no trailing slash needed).
+allowed_origins = [o.strip().rstrip("/") for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    # ponytail: any localhost port covers Vite's dev-port fallback; pin to a real origin for prod
+    allow_origins=allowed_origins,
+    # any localhost port covers Vite's dev-port fallback
     allow_origin_regex=r"http://localhost:\d+",
     allow_methods=["*"],
     allow_headers=["*"],

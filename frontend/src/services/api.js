@@ -1,4 +1,11 @@
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8001"
+// Dev falls back to the local backend; a production build must set VITE_API_BASE
+// (Vercel env var) or requests would silently target the visitor's own localhost.
+const configuredBase = import.meta.env.VITE_API_BASE
+if (!configuredBase && !import.meta.env.DEV) {
+  throw new Error("VITE_API_BASE is not set - point it at the deployed backend URL.")
+}
+// Trailing slashes stripped so "https://host/" doesn't yield "https://host//api/...".
+const API_BASE = (configuredBase || "http://localhost:8001").replace(/\/+$/, "")
 
 async function postJson(path, body) {
   const res = await fetch(`${API_BASE}${path}`, {
