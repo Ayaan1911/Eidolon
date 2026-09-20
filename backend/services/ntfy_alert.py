@@ -22,7 +22,9 @@ async def send_ntfy_alert(title: str, fields: dict[str, str]) -> None:
             resp = await client.post(
                 f"{NTFY_BASE}/{topic}",
                 content=body.encode("utf-8"),
-                headers={"Title": title},
+                # bytes, not str: httpx ASCII-encodes str header values, so an em dash
+                # or curly quote in a trap name would raise (and 500 the trap endpoint).
+                headers={"Title": title.encode("utf-8")},
             )
             resp.raise_for_status()
     except httpx.HTTPError as e:
