@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class EmailCheckRequest(BaseModel):
@@ -82,12 +82,28 @@ class AlertResponse(BaseModel):
     lat: float
     lng: float
     isp: str
+    org: str | None = None
+    asn: str | None = None
     browser: str
     os: str
     device: str
+    referer: str | None = None
+    # Set only on hits from a submitted fake login form (password_attempted is None on a page load).
+    email: str | None = None
+    password_attempted: bool | None = None
+    password_length: int | None = None
     timestamp: str
     source_type: str | None = None
     context: str | None = None
+
+
+class TrapLoginAttempt(BaseModel):
+    """What the fake login page reports on submit. The browser sends only the
+    password's length - the password itself never leaves the page - and any
+    other field (e.g. a stray "password") is ignored, never stored."""
+
+    email: str = Field(default="", max_length=320)
+    password_length: int = Field(ge=0, le=1024)
 
 
 class AdminLoginRequest(BaseModel):

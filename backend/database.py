@@ -9,7 +9,7 @@ cycle.
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, Integer, String, create_engine
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, create_engine, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 engine = create_engine("sqlite:///eidolon.db", connect_args={"check_same_thread": False})
@@ -39,13 +39,44 @@ class Alert(Base):
     latitude = Column(Float)
     longitude = Column(Float)
     isp = Column(String)
+    org = Column(String, nullable=True)
+    asn = Column(String, nullable=True)
     browser = Column(String)
     os = Column(String)
     device = Column(String)
+    referer = Column(String, nullable=True)
+    # Only set on hits that came from the fake login form being submitted.
+    # password_attempted stays NULL for a plain page load; the password itself
+    # is never stored, only whether one was typed and how long it was.
+    email = Column(String, nullable=True)
+    password_attempted = Column(Boolean, nullable=True)
+    password_length = Column(Integer, nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
 
 Base.metadata.create_all(engine)
+
+# create_all never alters an existing table, so a database created before these
+# columns existed needs them added in place.
+_ADDED_ALERT_COLUMNS = {
+    "org": "VARCHAR",
+    "asn": "VARCHAR",
+    "referer": "VARCHAR",
+    "email": "VARCHAR",
+    "password_attempted": "BOOLEAN",
+    "password_length": "INTEGER",
+}
+
+
+def add_missing_alert_columns(bind) -> None:
+    existing = {c["name"] for c in inspect(bind).get_columns("alerts")}
+    with bind.begin() as conn:
+        for name, ddl in _ADDED_ALERT_COLUMNS.items():
+            if name not in existing:
+                conn.execute(text(f"ALTER TABLE alerts ADD COLUMN {name} {ddl}"))
+
+
+add_missing_alert_columns(engine)
 
 
 def get_db():

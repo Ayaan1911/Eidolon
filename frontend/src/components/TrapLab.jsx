@@ -2,15 +2,16 @@ import { useEffect, useState } from "react"
 import { createTrap, getTrapAlerts } from "../services/api"
 import { clearAdminToken, getAdminToken } from "../lib/adminAuth"
 import AdminLogin from "./AdminLogin"
+import SignalRow from "./SignalRow"
 import Tag from "./Tag"
 import ErrorNote from "./ErrorNote"
 
 // Demo-mode stream. Every value is obviously a placeholder: RFC 5737 documentation
 // IPs, a made-up country, and a fixed clock label instead of a real time.
 const DEMO_ALERTS = [
-  { id: 3, trap_id: "demo0003", ip: "203.0.113.7", location: "Sampleville, Exampleland", browser: "SampleBrowser", os: "DemoOS", timestamp: "2000-01-01T00:03:00Z" },
-  { id: 2, trap_id: "demo0002", ip: "198.51.100.23", location: "Placeholder City, Exampleland", browser: "SampleBrowser", os: "DemoOS", timestamp: "2000-01-01T00:02:00Z" },
-  { id: 1, trap_id: "demo0001", ip: "192.0.2.14", location: "Nowhere, Exampleland", browser: "SampleBrowser", os: "DemoOS", timestamp: "2000-01-01T00:01:00Z" },
+  { id: 3, trap_id: "demo0003", ip: "203.0.113.7", location: "Sampleville, Exampleland", isp: "Example Broadband", org: "Example Networks Ltd", browser: "SampleBrowser", os: "DemoOS", referer: null, email: "visitor@example.com", password_attempted: true, password_length: 9, timestamp: "2000-01-01T00:03:00Z" },
+  { id: 2, trap_id: "demo0002", ip: "198.51.100.23", location: "Placeholder City, Exampleland", isp: "Sample Telecom", org: null, browser: "SampleBrowser", os: "DemoOS", referer: "https://search.example/?q=placeholder", email: null, password_attempted: null, password_length: null, timestamp: "2000-01-01T00:02:00Z" },
+  { id: 1, trap_id: "demo0001", ip: "192.0.2.14", location: "Nowhere, Exampleland", isp: "Example Broadband", org: "Example Networks Ltd", browser: "SampleBrowser", os: "DemoOS", referer: null, email: null, password_attempted: null, password_length: null, timestamp: "2000-01-01T00:01:00Z" },
 ]
 
 // HH:MM:SS, 24h — the log timestamp.
@@ -178,15 +179,7 @@ export default function TrapLab() {
           ) : (
             <ul>
               {stream.map((a) => (
-                <li
-                  key={a.id}
-                  className="flex gap-3 px-3 py-1.5 border-b border-hairline last:border-0"
-                >
-                  <span className="text-fg shrink-0">{admin ? clock(a.timestamp) : "00:00:00"}</span>
-                  <span className="text-fg-dim truncate">
-                    {a.location} · {a.browser}/{a.os} · {a.ip} · trap {a.trap_id}
-                  </span>
-                </li>
+                <SignalRow key={a.id} alert={a} time={admin ? clock(a.timestamp) : "00:00:00"} />
               ))}
             </ul>
           )}
