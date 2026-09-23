@@ -153,6 +153,20 @@ async def deploy_trap_for_finding(
     return TrapCreateResponse(id=trap_id, trap_url=f"{request.base_url}trap/{trap_id}")
 
 
+@router.delete("/api/traps/{trap_id}", status_code=204, dependencies=[Depends(require_admin)])
+async def delete_trap(trap_id: str, db: Session = Depends(get_db)) -> Response:
+    """Owner-only cleanup for a trap that shouldn't exist (e.g. one created
+    from a broken/placeholder finding). Its alert history goes with it -
+    there is nothing left worth keeping once the trap itself is gone."""
+    trap = db.query(Trap).filter(Trap.id == trap_id).first()
+    if not trap:
+        raise HTTPException(status_code=404, detail="No such trap")
+    db.query(Alert).filter(Alert.trap_id == trap_id).delete()
+    db.delete(trap)
+    db.commit()
+    return Response(status_code=204)
+
+
 @router.post("/api/traps/honeytoken", response_model=HoneytokenResponse)
 async def create_honeytoken(request: Request) -> HoneytokenResponse:
     return HoneytokenResponse(token=generate_token(), base_url=str(request.base_url).rstrip("/"))

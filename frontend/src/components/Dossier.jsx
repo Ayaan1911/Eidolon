@@ -1,5 +1,6 @@
 import { useState } from "react"
 import FindingCard from "./FindingCard"
+import EmptyFindingNote from "./EmptyFindingNote"
 import Eyebrow from "./Eyebrow"
 import { useFindings } from "../context/FindingsContext"
 import { getAdminToken } from "../lib/adminAuth"
@@ -82,15 +83,24 @@ export default function Dossier() {
         {shown.length === 0 ? (
           <p className="py-8 text-sm text-fg-dim">Nothing under this status.</p>
         ) : (
-          shown.map((finding) => (
-            <FindingCard
-              key={finding.id}
-              finding={finding}
-              sourceLabel={sourceLabels[finding.type] || finding.type}
-              status={finding.status}
-              isAdmin={isAdmin}
-            />
-          ))
+          shown.map((finding) =>
+            finding.empty ? (
+              <EmptyFindingNote
+                key={finding.id}
+                finding={finding}
+                sourceLabel={sourceLabels[finding.type] || finding.type}
+                status={finding.status}
+              />
+            ) : (
+              <FindingCard
+                key={finding.id}
+                finding={finding}
+                sourceLabel={sourceLabels[finding.type] || finding.type}
+                status={finding.status}
+                isAdmin={isAdmin}
+              />
+            )
+          )
         )}
       </div>
     </div>

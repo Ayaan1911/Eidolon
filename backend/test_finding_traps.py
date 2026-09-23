@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import main
-from database import Base, Trap, get_db
+from database import Alert, Base, Trap, get_db
 from routers import exposure
 from services import admin_auth
 from services.github_scanner import _finding_id
@@ -140,6 +140,32 @@ def test_undeployed_finding_shows_no_trap_even_to_admin():
     other_id = _finding_id("octocat/other-repo", "b.py", 1, "Stripe Secret Key")
     with _Session() as db:
         assert db.query(Trap).filter(Trap.finding_id == other_id).first() is None
+
+
+def test_delete_trap_requires_admin():
+    with _Session() as db:
+        trap_id = db.query(Trap).filter(Trap.finding_id == FINDING_ID).one().id
+    assert client.delete(f"/api/traps/{trap_id}").status_code == 401
+
+
+def test_delete_trap_removes_it_and_its_alerts():
+    with _Session() as db:
+        trap_id = db.query(Trap).filter(Trap.finding_id == FINDING_ID).one().id
+        assert db.query(Alert).filter(Alert.trap_id == trap_id).count() == 2  # from the hit-count test above
+
+    assert client.delete(f"/api/traps/{trap_id}", headers=admin_header()).status_code == 204
+
+    with _Session() as db:
+        assert db.query(Trap).filter(Trap.id == trap_id).first() is None
+        assert db.query(Alert).filter(Alert.trap_id == trap_id).count() == 0
+
+    # No trap left to find, so the finding reads as undeployed again.
+    r = client.post("/api/exposure/repos", json={"username": "octocat"}, headers=admin_header())
+    assert r.json()["results"][0]["findings"][0]["trap"] is None
+
+
+def test_delete_trap_404s_for_an_unknown_id():
+    assert client.delete("/api/traps/doesnotexist", headers=admin_header()).status_code == 404
 
 
 if __name__ == "__main__":

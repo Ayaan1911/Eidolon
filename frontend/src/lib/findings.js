@@ -8,6 +8,9 @@ export function emailToFindings(email, result) {
     return [
       {
         type: "breach",
+        // Informational only - Dossier renders this without Trap/Decoy actions,
+        // since there's no real finding here to attach either to.
+        empty: true,
         summary: `No known breaches were found for ${email}.`,
         severity: "None",
         raw: result,
@@ -62,10 +65,28 @@ export function photoToFindings(result, formatCapturedAt) {
 }
 
 export function repoToFindings(username, result) {
+  // An interrupted scan (almost always GitHub's unauthenticated rate limit) must say so,
+  // not read as "checked and clean" - the two look identical once collapsed to 0 findings.
+  if (result.incomplete) {
+    return [
+      {
+        type: "secret",
+        empty: true,
+        summary: `Repo scan for @${username} was interrupted after ${result.repos_scanned} repo${
+          result.repos_scanned === 1 ? "" : "s"
+        } — ${result.incomplete_reason}. Results may be incomplete; try again shortly.`,
+        severity: "None",
+        raw: result,
+      },
+    ]
+  }
   if (result.total_findings === 0) {
     return [
       {
         type: "secret",
+        // Informational only - Dossier renders this without Trap/Decoy actions,
+        // since there's no real finding here to attach either to.
+        empty: true,
         summary: `No exposed secrets were found across the last ${result.repos_scanned} scanned repos for @${username}.`,
         severity: "None",
         raw: result,
