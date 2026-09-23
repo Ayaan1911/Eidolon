@@ -166,7 +166,7 @@ async def scan_user_repos(username: str) -> dict:
             for item, content in zip(candidates, contents):
                 if content is None:
                     continue
-                for finding in scan_text_for_secrets(content):
+                for finding in scan_text_for_secrets(content, path=item["path"]):
                     full = {**finding, "file": item["path"]}
                     full["id"] = _finding_id(repo_label, full["file"], full["line"], full["type"])
                     repo_findings.append(full)
