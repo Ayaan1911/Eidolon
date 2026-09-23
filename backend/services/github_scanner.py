@@ -33,8 +33,22 @@ def _headers() -> dict[str, str]:
     # ponytail: unauthenticated GitHub API calls are capped at 60/hour; set GITHUB_TOKEN in .env for 5000/hour
     token = os.environ.get("GITHUB_TOKEN")
     if token:
-        headers["Authorization"] = f"Bearer {token}"
+        # "token" (not "Bearer") - the classic scheme for a classic personal access token.
+        headers["Authorization"] = f"token {token}"
     return headers
+
+
+def _rate_limit_reason(mid_scan: bool) -> str:
+    where = "mid-scan; results are partial" if mid_scan else "before any repos could be scanned"
+    if os.environ.get("GITHUB_TOKEN"):
+        return (
+            f"GitHub API rate limit reached {where}, despite an authenticated GITHUB_TOKEN "
+            "(5,000/hour) - GitHub's API load may be unusually high right now"
+        )
+    return (
+        f"GitHub API rate limit reached {where} - no GITHUB_TOKEN is configured, "
+        "so this account is capped at 60 requests/hour"
+    )
 
 
 def _is_rate_limited(resp: httpx.Response) -> bool:
@@ -116,7 +130,7 @@ async def scan_user_repos(username: str) -> dict:
                 "total_findings": 0,
                 "results": [],
                 "incomplete": True,
-                "incomplete_reason": "GitHub API rate limit reached before any repos could be scanned",
+                "incomplete_reason": _rate_limit_reason(mid_scan=False),
             }
 
         sem = asyncio.Semaphore(CONCURRENCY)
@@ -168,7 +182,5 @@ async def scan_user_repos(username: str) -> dict:
             "total_findings": total_findings,
             "results": results,
             "incomplete": incomplete,
-            "incomplete_reason": (
-                "GitHub API rate limit reached mid-scan; results are partial" if incomplete else None
-            ),
+            "incomplete_reason": _rate_limit_reason(mid_scan=True) if incomplete else None,
         }
