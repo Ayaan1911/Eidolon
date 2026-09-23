@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { createTrap, deployDecoy } from "../services/api"
+import { createTrap, deployDecoy, deployTrapForFinding } from "../services/api"
 import Tag from "./Tag"
 import ErrorNote from "./ErrorNote"
 import ReasoningPanel from "./ReasoningPanel"
@@ -37,7 +37,7 @@ function RedactedValue({ value }) {
   )
 }
 
-export default function FindingCard({ finding, sourceLabel, status }) {
+export default function FindingCard({ finding, sourceLabel, status, isAdmin }) {
   const [trap, setTrap] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -49,8 +49,33 @@ export default function FindingCard({ finding, sourceLabel, status }) {
   const [decoyError, setDecoyError] = useState(null)
   const [decoyCopied, setDecoyCopied] = useState(false)
 
-  const canTrap = finding.type === "breach" || finding.type === "secret"
+  // Secret findings: a trap linked to the finding itself, rather than the
+  // generic standalone one below. Seeded from the scan response so a trap
+  // deployed earlier (found again on a rescan) already shows as deployed.
+  const [findingTrap, setFindingTrap] = useState(finding.raw?.trap ?? null)
+  const [findingTrapLoading, setFindingTrapLoading] = useState(false)
+  const [findingTrapError, setFindingTrapError] = useState(null)
+
+  const canTrap = finding.type === "breach"
   const canDeployDecoy = finding.type === "secret"
+  const canDeployFindingTrap = finding.type === "secret" && isAdmin
+
+  async function deployFindingTrap() {
+    setFindingTrapLoading(true)
+    setFindingTrapError(null)
+    try {
+      const { trap_url } = await deployTrapForFinding(finding.raw.id, {
+        repo: finding.raw.repo,
+        file: finding.raw.file,
+        type: finding.raw.type,
+      })
+      setFindingTrap({ trap_url, hit_count: 0 })
+    } catch (err) {
+      setFindingTrapError(err.message)
+    } finally {
+      setFindingTrapLoading(false)
+    }
+  }
 
   async function deployTrap() {
     setLoading(true)
@@ -180,6 +205,25 @@ export default function FindingCard({ finding, sourceLabel, status }) {
           </div>
         )}
         {decoyError && <ErrorNote>{decoyError}</ErrorNote>}
+
+        {findingTrap && (
+          <div className="mt-3 text-sm">
+            <p className="flex items-center gap-2 flex-wrap text-fg-dim">
+              <Tag
+                label={`Trap deployed · ${findingTrap.hit_count} hit${findingTrap.hit_count === 1 ? "" : "s"}`}
+              />
+              <a
+                href={findingTrap.trap_url}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-fg underline decoration-hairline hover:decoration-edge"
+              >
+                {findingTrap.trap_url}
+              </a>
+            </p>
+          </div>
+        )}
+        {findingTrapError && <ErrorNote>{findingTrapError}</ErrorNote>}
       </div>
 
       <div className="flex flex-col items-end gap-2.5 shrink-0">
@@ -192,6 +236,16 @@ export default function FindingCard({ finding, sourceLabel, status }) {
             className="rounded-full border border-hairline px-3 py-1 text-xs text-fg-dim hover:text-fg hover:border-edge disabled:opacity-50 transition-colors"
           >
             {loading ? "Deploying…" : "Trap this →"}
+          </button>
+        )}
+        {canDeployFindingTrap && !findingTrap && (
+          <button
+            type="button"
+            onClick={deployFindingTrap}
+            disabled={findingTrapLoading}
+            className="rounded-full border border-hairline px-3 py-1 text-xs text-fg-dim hover:text-fg hover:border-edge disabled:opacity-50 transition-colors"
+          >
+            {findingTrapLoading ? "Deploying…" : "Deploy trap →"}
           </button>
         )}
         {canDeployDecoy && !decoy && (

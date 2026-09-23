@@ -2,6 +2,7 @@ import { useState } from "react"
 import FindingCard from "./FindingCard"
 import Eyebrow from "./Eyebrow"
 import { useFindings } from "../context/FindingsContext"
+import { getAdminToken } from "../lib/adminAuth"
 import { getDefaultDossierFilter } from "../lib/prefs"
 
 const sourceLabels = {
@@ -28,6 +29,9 @@ const FILTERS = [
 export default function Dossier() {
   const { findings } = useFindings()
   const [filter, setFilter] = useState(getDefaultDossierFilter)
+  // Read once per mount: Layout re-keys the route on every navigation (see
+  // main key={pathname}), so this is fresh each time the Dossier is opened.
+  const [isAdmin] = useState(() => getAdminToken() !== null)
 
   const withStatus = findings.map((f) => ({ ...f, status: statusOf(f.severity) }))
   const counts = withStatus.reduce(
@@ -84,6 +88,7 @@ export default function Dossier() {
               finding={finding}
               sourceLabel={sourceLabels[finding.type] || finding.type}
               status={finding.status}
+              isAdmin={isAdmin}
             />
           ))
         )}

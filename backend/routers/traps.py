@@ -10,6 +10,7 @@ from user_agents import parse
 from database import Alert, Trap, get_db
 from models.schemas import (
     AlertResponse,
+    FindingTrapRequest,
     HoneytokenResponse,
     TrapCreateRequest,
     TrapCreateResponse,
@@ -121,6 +122,35 @@ async def trap_login_attempt(
     )
     db.commit()
     return Response(status_code=204)
+
+
+@router.post(
+    "/api/findings/{finding_id}/deploy-trap",
+    response_model=TrapCreateResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def deploy_trap_for_finding(
+    finding_id: str, body: FindingTrapRequest, request: Request, db: Session = Depends(get_db)
+) -> TrapCreateResponse:
+    """Owner-only: turn a repo-scan secret finding into a real trap, named from
+    the finding's own context. Idempotent - a finding already trapped (e.g. a
+    rescan, or a second click) returns the existing trap instead of a duplicate."""
+    existing = db.query(Trap).filter(Trap.finding_id == finding_id).first()
+    if existing:
+        return TrapCreateResponse(id=existing.id, trap_url=f"{request.base_url}trap/{existing.id}")
+
+    trap_id = uuid.uuid4().hex[:8]
+    db.add(
+        Trap(
+            id=trap_id,
+            name=f"Secret canary — {body.type} in {body.repo}/{body.file}",
+            source_type="secret",
+            context=f"{body.repo}:{body.file}",
+            finding_id=finding_id,
+        )
+    )
+    db.commit()
+    return TrapCreateResponse(id=trap_id, trap_url=f"{request.base_url}trap/{trap_id}")
 
 
 @router.post("/api/traps/honeytoken", response_model=HoneytokenResponse)

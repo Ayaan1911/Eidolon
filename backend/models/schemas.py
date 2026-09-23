@@ -41,12 +41,21 @@ class RepoScanRequest(BaseModel):
     username: str
 
 
+class TrapStatus(BaseModel):
+    trap_url: str
+    hit_count: int
+
+
 class SecretFinding(BaseModel):
+    id: str
     file: str
     line: int
     type: str
     masked_value: str
     severity: str
+    # Only ever populated for an admin caller - a public scan of someone else's
+    # repos must never reveal that a trap exists, let alone its URL.
+    trap: TrapStatus | None = None
 
 
 class RepoFindings(BaseModel):
@@ -72,6 +81,15 @@ class TrapCreateRequest(BaseModel):
 class TrapCreateResponse(BaseModel):
     id: str
     trap_url: str
+
+
+class FindingTrapRequest(BaseModel):
+    """Context the frontend already has from the scan result, used to build a
+    trap name/context automatically - no manual naming for a finding-linked trap."""
+
+    repo: str = Field(max_length=200)
+    file: str = Field(max_length=500)
+    type: str = Field(max_length=100)
 
 
 class AlertResponse(BaseModel):

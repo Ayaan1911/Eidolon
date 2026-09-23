@@ -49,8 +49,15 @@ def is_valid_admin_token(token: str | None, now: float | None = None) -> bool:
     return int(expiry) > (time.time() if now is None else now)
 
 
+def is_admin_request(request: Request) -> bool:
+    """True if the request carries a valid admin bearer token. Non-raising, for
+    endpoints (like the public repo scan) that behave differently for an admin
+    caller but must still work for everyone else."""
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    return scheme.lower() == "bearer" and is_valid_admin_token(token.strip())
+
+
 def require_admin(request: Request) -> None:
     """FastAPI dependency: 401 unless a valid admin token is in the Authorization header."""
-    scheme, _, token = request.headers.get("authorization", "").partition(" ")
-    if scheme.lower() != "bearer" or not is_valid_admin_token(token.strip()):
+    if not is_admin_request(request):
         raise HTTPException(status_code=401, detail="Unauthorized")

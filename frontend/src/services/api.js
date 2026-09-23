@@ -43,7 +43,9 @@ export function checkPasswordStrength(password) {
 }
 
 export function scanGithubRepos(username) {
-  return postJson("/api/exposure/repos", { username })
+  // Sending the admin header (when present) is what lets a finding's response
+  // carry trap status - harmless for a logged-out visitor, who has none.
+  return postJson("/api/exposure/repos", { username }, adminHeaders() ?? {})
 }
 
 export async function checkPhotoMetadata(file) {
@@ -73,6 +75,12 @@ export async function deployDecoy(findingId) {
     throw new Error(data.detail || `Request failed (${res.status})`)
   }
   return res.json()
+}
+
+export function deployTrapForFinding(findingId, { repo, file, type }) {
+  const headers = adminHeaders()
+  if (!headers) return Promise.reject(new Error("Deploying traps is admin-only in this public demo."))
+  return postJson(`/api/findings/${findingId}/deploy-trap`, { repo, file, type }, headers)
 }
 
 export async function getTrapAlerts() {

@@ -77,7 +77,9 @@ export function repoToFindings(username, result) {
       type: "secret",
       summary: `A ${f.type} was found exposed in ${repo.repo} at ${f.file}, line ${f.line}.`,
       severity: f.severity,
-      raw: f,
+      // repo isn't on the backend's per-finding object (it's one level up); adding it
+      // here is what lets FindingCard build the deploy-trap request from finding.raw alone.
+      raw: { ...f, repo: repo.repo },
     }))
   )
 }

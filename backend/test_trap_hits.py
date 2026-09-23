@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import main
-from database import Alert, Base, add_missing_alert_columns, get_db
+from database import Alert, Base, add_missing_columns, get_db
 from routers import traps
 from services import admin_auth
 
@@ -124,8 +124,8 @@ def test_migration_adds_columns_to_an_old_database():
     with old.begin() as conn:
         conn.execute(text("CREATE TABLE alerts (id INTEGER PRIMARY KEY, trap_id VARCHAR, ip VARCHAR, isp VARCHAR)"))
         conn.execute(text("INSERT INTO alerts (trap_id, ip, isp) VALUES ('old', '1.2.3.4', 'Legacy ISP')"))
-    add_missing_alert_columns(old)
-    add_missing_alert_columns(old)  # idempotent
+    add_missing_columns(old)
+    add_missing_columns(old)  # idempotent
     with old.connect() as conn:
         cols = {r[1] for r in conn.execute(text("PRAGMA table_info(alerts)"))}
         assert {"org", "asn", "referer", "email", "password_attempted", "password_length"} <= cols

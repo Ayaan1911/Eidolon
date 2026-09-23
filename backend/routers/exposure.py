@@ -1,8 +1,10 @@
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from PIL import UnidentifiedImageError
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sqlalchemy.orm import Session
 
+from database import Trap, get_db
 from models.schemas import (
     EmailCheckRequest,
     EmailCheckResponse,
@@ -11,7 +13,9 @@ from models.schemas import (
     PhotoMetadataResponse,
     RepoScanRequest,
     RepoScanResponse,
+    TrapStatus,
 )
+from services.admin_auth import is_admin_request
 from services.breach_check import BreachCheckError, check_email_exposure
 from services.github_scanner import GitHubScanError, scan_user_repos
 from services.password_strength import check_password_strength
@@ -54,8 +58,29 @@ async def exposure_photo(request: Request, file: UploadFile = File(...)) -> Phot
 # calls against the unauthenticated 60/hour quota, so 10/minute here would exhaust it fast
 @router.post("/repos", response_model=RepoScanResponse)
 @limiter.limit("5/minute")
-async def exposure_repos(request: Request, body: RepoScanRequest) -> RepoScanResponse:
+async def exposure_repos(
+    request: Request, body: RepoScanRequest, db: Session = Depends(get_db)
+) -> RepoScanResponse:
     try:
-        return await scan_user_repos(body.username)
+        result = RepoScanResponse(**await scan_user_repos(body.username))
     except GitHubScanError as e:
         raise HTTPException(status_code=e.status_code, detail=str(e)) from e
+
+    # This endpoint scans any GitHub username a visitor types in, not just the
+    # site owner's own - so trap status (and its URL) is attached only for an
+    # admin caller, never on a public scan of someone else's repos.
+    if is_admin_request(request):
+        finding_ids = [f.id for r in result.results for f in r.findings]
+        if finding_ids:
+            traps_by_finding = {
+                t.finding_id: t
+                for t in db.query(Trap).filter(Trap.finding_id.in_(finding_ids)).all()
+            }
+            for r in result.results:
+                for f in r.findings:
+                    trap = traps_by_finding.get(f.id)
+                    if trap:
+                        f.trap = TrapStatus(
+                            trap_url=f"{request.base_url}trap/{trap.id}", hit_count=trap.trigger_count
+                        )
+    return result

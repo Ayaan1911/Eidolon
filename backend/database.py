@@ -27,6 +27,9 @@ class Trap(Base):
     # Set when a trap is deployed from a dossier finding rather than the standalone Trap Lab.
     source_type = Column(String, nullable=True)
     context = Column(String, nullable=True)
+    # A stable hash of the finding it was deployed for (repo:file:line:type) - lets a
+    # rescan recognize "this finding already has a trap" without a database of findings.
+    finding_id = Column(String, nullable=True)
 
 
 class Alert(Base):
@@ -58,25 +61,34 @@ Base.metadata.create_all(engine)
 
 # create_all never alters an existing table, so a database created before these
 # columns existed needs them added in place.
-_ADDED_ALERT_COLUMNS = {
-    "org": "VARCHAR",
-    "asn": "VARCHAR",
-    "referer": "VARCHAR",
-    "email": "VARCHAR",
-    "password_attempted": "BOOLEAN",
-    "password_length": "INTEGER",
+_ADDED_COLUMNS = {
+    "alerts": {
+        "org": "VARCHAR",
+        "asn": "VARCHAR",
+        "referer": "VARCHAR",
+        "email": "VARCHAR",
+        "password_attempted": "BOOLEAN",
+        "password_length": "INTEGER",
+    },
+    "traps": {
+        "finding_id": "VARCHAR",
+    },
 }
 
 
-def add_missing_alert_columns(bind) -> None:
-    existing = {c["name"] for c in inspect(bind).get_columns("alerts")}
-    with bind.begin() as conn:
-        for name, ddl in _ADDED_ALERT_COLUMNS.items():
-            if name not in existing:
-                conn.execute(text(f"ALTER TABLE alerts ADD COLUMN {name} {ddl}"))
+def add_missing_columns(bind) -> None:
+    inspector = inspect(bind)
+    for table, columns in _ADDED_COLUMNS.items():
+        if not inspector.has_table(table):
+            continue
+        existing = {c["name"] for c in inspector.get_columns(table)}
+        with bind.begin() as conn:
+            for name, ddl in columns.items():
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
-add_missing_alert_columns(engine)
+add_missing_columns(engine)
 
 
 def get_db():

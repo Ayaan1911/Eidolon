@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import os
 from urllib.parse import quote
 
@@ -38,6 +39,14 @@ def _headers() -> dict[str, str]:
 
 def _is_rate_limited(resp: httpx.Response) -> bool:
     return resp.status_code == 403 and resp.headers.get("X-RateLimit-Remaining") == "0"
+
+
+def _finding_id(repo: str, file: str, line: int, secret_type: str) -> str:
+    """A stable fingerprint of a finding's identity (not its value), so the same
+    secret keeps the same id across rescans and a deployed trap can be matched
+    back to it without persisting scan results."""
+    digest = hashlib.sha256(f"{repo}:{file}:{line}:{secret_type}".encode()).hexdigest()
+    return digest[:16]
 
 
 def _is_candidate(path: str, size: int) -> bool:
@@ -138,17 +147,20 @@ async def scan_user_repos(username: str) -> dict:
                 *(_fetch_file(client, owner, name, branch, item["path"], sem) for item in candidates)
             )
 
+            repo_label = f"{owner}/{name}"
             repo_findings = []
             for item, content in zip(candidates, contents):
                 if content is None:
                     continue
                 for finding in scan_text_for_secrets(content):
-                    repo_findings.append({**finding, "file": item["path"]})
+                    full = {**finding, "file": item["path"]}
+                    full["id"] = _finding_id(repo_label, full["file"], full["line"], full["type"])
+                    repo_findings.append(full)
 
             repos_scanned += 1
             if repo_findings:
                 total_findings += len(repo_findings)
-                results.append({"repo": f"{owner}/{name}", "findings": repo_findings})
+                results.append({"repo": repo_label, "findings": repo_findings})
 
         return {
             "username": username,
