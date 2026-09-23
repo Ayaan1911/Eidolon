@@ -29,6 +29,12 @@ class GitHubScanError(Exception):
 
 
 def _headers() -> dict[str, str]:
+    """Headers for api.github.com calls only - never attach these to a
+    raw.githubusercontent.com request. That CDN doesn't need a token for public
+    content, and empirically, sending one anyway gets a separately cached copy
+    that can be well behind a request with no Authorization header at all
+    (observed: a fresh push not showing up in a same-second authenticated
+    fetch, while an unauthenticated fetch of the identical URL was current)."""
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "Eidolon-SecretScanner"}
     # ponytail: unauthenticated GitHub API calls are capped at 60/hour; set GITHUB_TOKEN in .env for 5000/hour
     token = os.environ.get("GITHUB_TOKEN")
@@ -81,6 +87,7 @@ async def _list_repos(client: httpx.AsyncClient, username: str) -> tuple[list[di
         resp = await client.get(
             f"{GITHUB_API}/users/{username}/repos",
             params={"sort": "updated", "direction": "desc", "per_page": 30},
+            headers=_headers(),
         )
     except httpx.HTTPError as e:
         raise GitHubScanError(f"Could not reach GitHub API: {e}") from e
@@ -99,6 +106,7 @@ async def _get_tree(client: httpx.AsyncClient, owner: str, repo: str, branch: st
     resp = await client.get(
         f"{GITHUB_API}/repos/{owner}/{repo}/git/trees/{branch}",
         params={"recursive": "1"},
+        headers=_headers(),
     )
     if _is_rate_limited(resp):
         return [], True
@@ -114,6 +122,8 @@ async def _fetch_file(
     url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{quote(path, safe='/')}"
     async with sem:
         try:
+            # No _headers() here - see its docstring for why raw.githubusercontent.com
+            # specifically must not get an Authorization header.
             resp = await client.get(url, timeout=REQUEST_TIMEOUT)
             return resp.text if resp.status_code == 200 else None
         except httpx.HTTPError:
@@ -121,7 +131,10 @@ async def _fetch_file(
 
 
 async def scan_user_repos(username: str) -> dict:
-    async with httpx.AsyncClient(headers=_headers(), timeout=REQUEST_TIMEOUT) as client:
+    # No default headers on the client itself: _list_repos/_get_tree (api.github.com)
+    # attach _headers() explicitly per call; _fetch_file (raw.githubusercontent.com)
+    # deliberately does not, so the same client can't leak an auth header across domains.
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
         repos, rate_limited = await _list_repos(client, username)
         if rate_limited:
             return {

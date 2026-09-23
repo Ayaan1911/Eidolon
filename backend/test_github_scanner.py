@@ -79,6 +79,37 @@ def test_scan_reports_authenticated_rate_limit_when_token_set():
     assert "despite an authenticated github_token" in result["incomplete_reason"].lower()
 
 
+def test_raw_content_fetch_never_carries_the_github_token():
+    """The actual bug: sending Authorization to raw.githubusercontent.com got a
+    separately-cached (and observed to be staler) response than an unauthenticated
+    fetch of the identical URL - a rescan right after a push could see stale content."""
+    os.environ["GITHUB_TOKEN"] = "ghp_examplenotarealtoken"
+    seen = {"api": [], "raw": []}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        auth = request.headers.get("authorization")
+        if request.url.host == "api.github.com":
+            seen["api"].append(auth)
+            if request.url.path.endswith("/repos"):
+                return httpx.Response(200, json=[{"name": "r", "owner": {"login": "octocat"}, "fork": False}])
+            return httpx.Response(
+                200, json={"tree": [{"path": "README.md", "type": "blob", "size": 10}]}
+            )
+        seen["raw"].append(auth)
+        return httpx.Response(200, text="nothing interesting here")
+
+    real_client = github_scanner.httpx.AsyncClient
+    github_scanner.httpx.AsyncClient = lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw)
+    try:
+        asyncio.run(scan_user_repos("octocat"))
+    finally:
+        github_scanner.httpx.AsyncClient = real_client
+        os.environ.pop("GITHUB_TOKEN", None)
+
+    assert seen["api"] and all(a == "token ghp_examplenotarealtoken" for a in seen["api"])
+    assert seen["raw"] == [None]  # the raw-content fetch happened, carrying no auth at all
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
