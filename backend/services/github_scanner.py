@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import os
+import re
 from urllib.parse import quote
 
 import httpx
@@ -15,6 +16,14 @@ REQUEST_TIMEOUT = 10.0
 
 _NOISY_DIR_PARTS = {"node_modules", "dist", "build", "vendor", ".git"}
 _NOISY_FILENAMES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml"}
+# Test code is full of deliberately secret-shaped fixtures (it has to be, to
+# test a scanner or an auth flow), so it's skipped by path convention in every
+# scanned repo rather than by rewriting individual fixture strings.
+# ponytail: a real key hardcoded in a test file is missed too; accepted trade.
+_TEST_DIR_PARTS = {"test", "tests", "__tests__", "spec", "specs", "testdata"}
+_TEST_FILENAME = re.compile(
+    r"^(test_.+\.py|.+_test\.(py|go|rb)|conftest\.py|.+\.(test|spec)\.[cm]?[jt]sx?|.+Tests?\.(java|kt|cs))$"
+)
 _BINARY_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".pdf", ".zip", ".gz",
     ".tar", ".exe", ".dll", ".so", ".dylib", ".woff", ".woff2", ".ttf",
@@ -73,9 +82,11 @@ def _is_candidate(path: str, size: int) -> bool:
     if size > MAX_FILE_BYTES:
         return False
     parts = path.split("/")
-    if any(p in _NOISY_DIR_PARTS for p in parts[:-1]):
+    if any(p in _NOISY_DIR_PARTS or p.lower() in _TEST_DIR_PARTS for p in parts[:-1]):
         return False
     filename = parts[-1]
+    if _TEST_FILENAME.match(filename):
+        return False
     if filename in _NOISY_FILENAMES or filename.endswith(".min.js"):
         return False
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""

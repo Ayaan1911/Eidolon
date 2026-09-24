@@ -110,6 +110,36 @@ def test_raw_content_fetch_never_carries_the_github_token():
     assert seen["raw"] == [None]  # the raw-content fetch happened, carrying no auth at all
 
 
+def test_test_files_are_not_scan_candidates():
+    from services.github_scanner import _is_candidate
+
+    for path in (
+        "backend/test_secret_scanner.py",  # Eidolon's own fixture-heavy tests
+        "tests/fixtures/config.yml",
+        "src/__tests__/auth.js",
+        "pkg/client_test.go",
+        "app/conftest.py",
+        "web/login.test.tsx",
+        "web/api.spec.js",
+        "src/main/AuthServiceTest.java",
+    ):
+        assert not _is_candidate(path, 100), path
+
+
+def test_lookalike_names_are_still_scanned():
+    from services.github_scanner import _is_candidate
+
+    for path in (
+        "backend/services/secret_scanner.py",
+        "contest.py",
+        "latest.py",
+        "testimonials/index.html",
+        ".env.example",
+        "src/Contest.java",
+    ):
+        assert _is_candidate(path, 100), path
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

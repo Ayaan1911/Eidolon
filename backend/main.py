@@ -36,4 +36,6 @@ app.include_router(traps_router)
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok"}
+    # Render sets RENDER_GIT_COMMIT on every deploy, so this answers "is the
+    # latest fix actually live?" without opening the dashboard.
+    return {"status": "ok", "commit": os.environ.get("RENDER_GIT_COMMIT", "unknown")[:7]}
