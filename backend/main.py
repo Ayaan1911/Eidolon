@@ -10,13 +10,14 @@ from routers.admin import router as admin_router
 from routers.exposure import limiter, router as exposure_router
 from routers.traps import router as traps_router
 from services.client_ip import trusted_proxy_hops
-from services.startup_checks import check_secrets
+from services.startup_checks import check_database, check_secrets
 
 # Local dev: read backend/.env. Variables already set in the real environment (Render) win.
 load_dotenv()
 
 # Fail closed: weak or missing secrets stop the app from starting (see startup_checks.py).
 check_secrets()
+check_database()
 
 # Refuse to start on a bad TRUSTED_PROXY_HOPS instead of failing on every request later.
 trusted_proxy_hops()

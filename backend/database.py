@@ -12,7 +12,32 @@ from datetime import datetime
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, create_engine, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-engine = create_engine("sqlite:///eidolon.db", connect_args={"check_same_thread": False})
+from db_config import database_url, is_sqlite
+
+# Connection settings for Postgres (Neon). Named so the reason for each number is next to it.
+POOL_SIZE = 3  # a few connections are plenty; the free plan only allows a handful in total
+MAX_OVERFLOW = 2  # extra connections allowed during a burst, closed again afterwards
+POOL_RECYCLE_SECONDS = 300  # Neon suspends an idle database after 5 minutes: retire connections before that
+CONNECT_TIMEOUT_SECONDS = 10  # waking a suspended database takes a few seconds; do not wait forever
+
+
+def build_engine(url: str):
+    if is_sqlite(url):
+        # SQLite is for local development and tests only. The flag lets FastAPI's worker threads share it.
+        return create_engine(url, connect_args={"check_same_thread": False}, pool_pre_ping=True)
+    return create_engine(
+        url,
+        pool_size=POOL_SIZE,
+        max_overflow=MAX_OVERFLOW,
+        pool_recycle=POOL_RECYCLE_SECONDS,
+        # Before lending out a pooled connection, send a cheap "are you alive" query; a connection
+        # that went stale while the database was suspended is replaced instead of failing a request.
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": CONNECT_TIMEOUT_SECONDS},
+    )
+
+
+engine = build_engine(database_url())
 Base = declarative_base()
 SessionLocal = sessionmaker(bind=engine)
 
@@ -57,7 +82,9 @@ class Alert(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
 
 
-Base.metadata.create_all(engine)
+# Temporary until Alembic takes over (next commit): never build tables on a real Postgres at import.
+if is_sqlite(str(engine.url)):
+    Base.metadata.create_all(engine)
 
 # create_all never alters an existing table, so a database created before these
 # columns existed needs them added in place.
@@ -88,7 +115,8 @@ def add_missing_columns(bind) -> None:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
-add_missing_columns(engine)
+if is_sqlite(str(engine.url)):
+    add_missing_columns(engine)
 
 
 def get_db():

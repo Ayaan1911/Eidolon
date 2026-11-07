@@ -102,7 +102,8 @@ def test_only_the_exact_word_dev_counts(monkeypatch, value):
 def run_import_main(env_overrides: dict, cwd: Path):
     """Import main in a fresh interpreter, the way uvicorn would on startup."""
     env = {k: v for k, v in os.environ.items() if k not in ("EIDOLON_ENV", "ADMIN_KEY", "HONEYTOKEN_SECRET")}
-    env.update(env_overrides, PYTHONPATH=str(BACKEND_DIR))
+    # A local Postgres URL passes the database check; nothing connects just by importing main.
+    env.update({"DATABASE_URL": "postgresql://u:p@localhost/app"}, **env_overrides, PYTHONPATH=str(BACKEND_DIR))
     return subprocess.run([sys.executable, "-c", "import main"], cwd=cwd, env=env, capture_output=True, text=True)
 
 

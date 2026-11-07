@@ -7,6 +7,8 @@ variable and its length, never its value.
 
 import os
 
+from db_config import database_url
+
 MIN_ADMIN_KEY_LENGTH = 12
 MIN_HONEYTOKEN_SECRET_LENGTH = 16
 # .env.example ships values starting with this, so copying it unchanged must not boot.
@@ -43,3 +45,9 @@ def check_secrets() -> None:
         raise InsecureConfigError(
             "Refusing to start: " + "; ".join(problems) + f". Set real secrets, or {DEV_ENV_VAR}=dev for local development only."
         )
+
+
+def check_database() -> None:
+    """Raise DatabaseConfigError (message never contains the URL) unless a safe database is configured:
+    DATABASE_URL set to Postgres with SSL, or no DATABASE_URL and EIDOLON_ENV=dev."""
+    database_url()
