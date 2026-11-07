@@ -16,8 +16,11 @@ Run from backend/:  python -m pytest
 import ipaddress
 import os
 import socket
+from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -28,7 +31,7 @@ from sqlalchemy.pool import StaticPool
 os.environ.setdefault("EIDOLON_ENV", "dev")
 
 import main  # noqa: E402
-from database import Base, Trap, get_db
+from database import Trap, get_db
 from routers import exposure, traps
 from services import admin_auth, breach_check
 
@@ -113,10 +116,23 @@ def _no_network_in_traps(monkeypatch):
     monkeypatch.setattr(traps, "send_ntfy_alert", no_alert)
 
 
+BACKEND_DIR = Path(__file__).resolve().parent
+
+
+def alembic_config(connection=None) -> Config:
+    """Alembic settings; with a connection, migrations run on it instead of building their own."""
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    if connection is not None:
+        config.attributes["connection"] = connection
+    return config
+
+
 @pytest.fixture
 def engine():
+    """A fresh in-memory SQLite database built by the real migrations (not create_all)."""
     eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    Base.metadata.create_all(eng)
+    with eng.begin() as connection:
+        command.upgrade(alembic_config(connection), "head")
     yield eng
     eng.dispose()
 

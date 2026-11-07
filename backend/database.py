@@ -1,4 +1,6 @@
-"""SQLite-backed storage for the trap mechanism.
+"""Database storage for the trap mechanism (Postgres in production, SQLite for local dev and tests).
+
+The schema is owned by Alembic (see migrations/): nothing here creates or alters tables.
 
 Phase 1 is deliberately ephemeral — the Mirror's breach/photo/repo checks never
 persist anything server-side. Traps are the intentional exception: the entire
@@ -7,9 +9,9 @@ records are stored for real here instead of living only in a request/response
 cycle.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, create_engine, inspect, text
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, MetaData, String, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from db_config import database_url, is_sqlite
@@ -38,8 +40,18 @@ def build_engine(url: str):
 
 
 engine = build_engine(database_url())
-Base = declarative_base()
+# Fixed constraint/index names, so migrations name them explicitly instead of leaving it to the database.
+NAMING_CONVENTION = {
+    "ix": "ix_%(table_name)s_%(column_0_name)s",
+    "pk": "pk_%(table_name)s",
+}
+Base = declarative_base(metadata=MetaData(naming_convention=NAMING_CONVENTION))
 SessionLocal = sessionmaker(bind=engine)
+
+
+def utc_now() -> datetime:
+    """Timezone-aware UTC "now" (datetime.utcnow() is deprecated and returns a naive value)."""
+    return datetime.now(timezone.utc)
 
 
 class Trap(Base):
@@ -47,21 +59,21 @@ class Trap(Base):
 
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
     trigger_count = Column(Integer, default=0)
     # Set when a trap is deployed from a dossier finding rather than the standalone Trap Lab.
     source_type = Column(String, nullable=True)
     context = Column(String, nullable=True)
     # A stable hash of the finding it was deployed for (repo:file:line:type) - lets a
     # rescan recognize "this finding already has a trap" without a database of findings.
-    finding_id = Column(String, nullable=True)
+    finding_id = Column(String, nullable=True, index=True)
 
 
 class Alert(Base):
     __tablename__ = "alerts"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    trap_id = Column(String, nullable=False)
+    trap_id = Column(String, nullable=False, index=True)
     ip = Column(String)
     location = Column(String)
     latitude = Column(Float)
@@ -79,44 +91,8 @@ class Alert(Base):
     email = Column(String, nullable=True)
     password_attempted = Column(Boolean, nullable=True)
     password_length = Column(Integer, nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-
-
-# Temporary until Alembic takes over (next commit): never build tables on a real Postgres at import.
-if is_sqlite(str(engine.url)):
-    Base.metadata.create_all(engine)
-
-# create_all never alters an existing table, so a database created before these
-# columns existed needs them added in place.
-_ADDED_COLUMNS = {
-    "alerts": {
-        "org": "VARCHAR",
-        "asn": "VARCHAR",
-        "referer": "VARCHAR",
-        "email": "VARCHAR",
-        "password_attempted": "BOOLEAN",
-        "password_length": "INTEGER",
-    },
-    "traps": {
-        "finding_id": "VARCHAR",
-    },
-}
-
-
-def add_missing_columns(bind) -> None:
-    inspector = inspect(bind)
-    for table, columns in _ADDED_COLUMNS.items():
-        if not inspector.has_table(table):
-            continue
-        existing = {c["name"] for c in inspector.get_columns(table)}
-        with bind.begin() as conn:
-            for name, ddl in columns.items():
-                if name not in existing:
-                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
-
-
-if is_sqlite(str(engine.url)):
-    add_missing_columns(engine)
+    # Indexed: the alert list sorts by it and the retention job filters on it.
+    timestamp = Column(DateTime(timezone=True), default=utc_now, index=True)
 
 
 def get_db():

@@ -6,10 +6,9 @@ its own empty in-memory database.
 """
 
 import pytest
-from sqlalchemy import create_engine, text
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import text
 
-from database import Alert, add_missing_columns
+from database import Alert
 
 SECRET_PASSWORD = "SuperSecret!Pa55word"
 LOGIN = {"email": "victim@example.com", "password_length": len(SECRET_PASSWORD)}
@@ -94,16 +93,3 @@ def test_alert_stream_exposes_new_fields_to_admin(client, admin_headers):
     assert "password" not in login and SECRET_PASSWORD not in str(rows)
     visit = next(r for r in rows if r["referer"] and "example-search" in r["referer"])
     assert visit["password_attempted"] is None and visit["email"] is None
-
-
-def test_migration_adds_columns_to_an_old_database():
-    old = create_engine("sqlite://", poolclass=StaticPool)
-    with old.begin() as conn:
-        conn.execute(text("CREATE TABLE alerts (id INTEGER PRIMARY KEY, trap_id VARCHAR, ip VARCHAR, isp VARCHAR)"))
-        conn.execute(text("INSERT INTO alerts (trap_id, ip, isp) VALUES ('old', '1.2.3.4', 'Legacy ISP')"))
-    add_missing_columns(old)
-    add_missing_columns(old)  # idempotent
-    with old.connect() as conn:
-        cols = {r[1] for r in conn.execute(text("PRAGMA table_info(alerts)"))}
-        assert {"org", "asn", "referer", "email", "password_attempted", "password_length"} <= cols
-        assert conn.execute(text("SELECT isp, org FROM alerts")).one() == ("Legacy ISP", None)
