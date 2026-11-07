@@ -3,8 +3,10 @@ sample-filename check. Plus a regression guard for the exact bug that started
 this - the scanner flagging its own test fixtures when Eidolon's own GitHub
 repo is a scan target.
 
-Run from backend/:  python test_secret_scanner.py  (also collected by pytest)
+Run from backend/:  python -m pytest test_secret_scanner.py
 """
+
+from pathlib import Path
 
 from services.secret_scanner import scan_text_for_secrets
 
@@ -76,7 +78,7 @@ def test_same_content_outside_an_example_file_still_flags():
 def test_self_scan_does_not_flag_this_files_own_fixtures():
     """The exact original bug: Eidolon scanning its own GitHub repo found
     secret_scanner.py's demo fixtures and reported them as real findings."""
-    with open("services/secret_scanner.py", encoding="utf-8") as f:
+    with open(Path(__file__).parent / "services" / "secret_scanner.py", encoding="utf-8") as f:
         own_source = f.read()
     assert scan_text_for_secrets(own_source, path="services/secret_scanner.py") == []
 
@@ -84,9 +86,3 @@ def test_self_scan_does_not_flag_this_files_own_fixtures():
         this_file = f.read()
     assert scan_text_for_secrets(this_file, path="test_secret_scanner.py") == []
 
-
-if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_"):
-            fn()
-            print("ok", name)
