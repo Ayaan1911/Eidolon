@@ -17,7 +17,10 @@ TOKEN_PREFIX = "eidolon_live_"
 
 
 def _secret() -> bytes:
-    return os.environ["HONEYTOKEN_SECRET"].encode()
+    secret = os.environ["HONEYTOKEN_SECRET"]
+    if not secret:
+        raise KeyError("HONEYTOKEN_SECRET")  # an empty key is still a valid HMAC key: refuse it
+    return secret.encode()
 
 
 def sign(payload: str) -> str:

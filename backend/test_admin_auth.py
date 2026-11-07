@@ -55,9 +55,9 @@ def test_locked_endpoints_accept_valid_token(client):
 
 
 def test_public_endpoints_stay_public(client):
-    # Mirror tools and the decoy-key flow must not need a token.
+    # Mirror tools must not need a token. (deploy-decoy used to be listed here; Pass 4
+    # made it admin-only, see test_mint_routes.py.)
     assert client.post("/api/exposure/password", json={"password": "hunter2"}).status_code == 200
-    assert client.post("/api/findings/abc/deploy-decoy").status_code == 200
     assert client.get("/health").status_code == 200
 
 

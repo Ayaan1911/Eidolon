@@ -5,8 +5,8 @@
 - [x] Pass 0 — verification (done: `docs/audit/pass-0-verification.md`)
 - [x] Pass 1 — ReDoS hotfix (done on `fix/audit-pass-1`; 500 KB line now 0.046 s, `/health` stays under 1 s during a scan)
 - [x] Pass 2 — test isolation and pinned dependencies (done on `fix/audit-pass-1`: 181 tests, pinned `requirements*.txt`)
-- [ ] Pass 3 — CI *(open: workflow rewritten and every step passes locally, but the GitHub Actions run could not be checked — `gh` is not installed here; check https://github.com/Ayaan1911/Eidolon/actions by hand)*
-- [ ] Pass 4 — trust boundary
+- [x] Pass 3 — CI (done: CI green, PR #1 merged)
+- [x] Pass 4a — trust boundary (done on `pass-4-trust-boundary`: client IP helper, fail-closed secrets, gated mint routes, hardened trap routes)
 - [ ] Pass 5 — Postgres on Neon with Alembic
 - [ ] Pass 6 — Docker and Compose
 - [ ] Pass 7 — logging and readiness
@@ -140,3 +140,102 @@ def test_failed_lookup_still_serves_the_page_and_logs_the_hit(...):
 - Ruff's own default rule set reports 13 findings, none of them unused imports/variables: import ordering (`database.py`, `main.py`, `test_scanner_regex_safety.py`: I001), FastAPI `Depends()`/`File()` in argument defaults (B008, the normal FastAPI idiom, 8 hits in `routers/`), `datetime.utcnow()` (DTZ003, `routers/traps.py:199`), one string join (FLY002, `test_secret_scanner.py:25`). `backend/ruff.toml` narrows the check to pyflakes + serious errors so CI is green; revisit when adding formatting rules.
 - `check_email_exposure` puts the upstream error text (which includes the request URL with the email) into the 502 `detail`; a non-JSON ip-api reply would, by reading the code, raise an uncaught `ValueError` in `lookup_ip` (unverified; not tested because the test would pin a bug).
 - Python version is still not pinned in the repo.
+
+## Revision note — Pass 4a: trust boundary
+
+**What changed and why.** Pass 0 showed that the app believed whatever a visitor told it. This pass makes four changes:
+
+1. One function, `get_client_ip`, decides the visitor's IP, and it never takes the leftmost `X-Forwarded-For` entry.
+2. The app refuses to start with weak or blank secrets, and admin sessions use a separately derived signing key.
+3. The routes that mint decoy keys or create/deploy traps now require the admin session.
+4. Trap routes check the id first and do nothing for an invalid one; valid hits push to ntfy at most once per trap per 5 minutes; every trap route has a per-IP rate limit.
+
+Tests: 181 → 293. App-code coverage 92% → 93%.
+
+### Key concepts
+
+**Trusting proxy headers, and reading `X-Forwarded-For` from the right.** Behind Render's proxy the TCP peer is the proxy, so the visitor's address arrives in a header. Anyone can send that header. Each proxy *appends* what it saw on the right, so the left side may be forged and the right side is what our own proxies wrote:
+
+```python
+entries = [e.strip() for e in request.headers.get("x-forwarded-for", "").split(",")]
+if len(entries) < hops:
+    return peer  # fewer proxies than expected: the header is not what we were told to trust
+chosen = entries[-hops]  # 1 = the last entry, 2 = the one before it, ...
+```
+
+`TRUSTED_PROXY_HOPS` (default 0) is how many proxies we own. With 0 the header is ignored. Every fallback returns the socket peer, never a guess. The old start command (`--proxy-headers --forwarded-allow-ips=*`) is worse than any of this: uvicorn rewrites `request.client.host` itself from the leftmost entry before our code runs, so the start command has to change (README, "Deploying").
+
+**Fail-closed configuration.** The old code accepted a blank `ADMIN_KEY`, which is a valid (empty) HMAC key, so a forged admin token verified. Now:
+
+```python
+if os.environ.get(DEV_ENV_VAR) == "dev":
+    return
+problems = [p for name, minimum in _REQUIRED.items() if (p := _problem(name, minimum))]
+if problems:
+    raise InsecureConfigError("Refusing to start: " + "; ".join(problems) + ...)
+```
+
+"Fail closed" means that when something is missing or wrong, the safe outcome (not starting) happens by default, and being insecure needs an explicit opt-in (`EIDOLON_ENV=dev`). The error names the variable and its length, never the value, because error messages end up in logs.
+
+**Key separation and constant-time comparison.**
+
+```python
+def _signing_key() -> bytes:
+    ...
+    return hmac.new(honeytoken_secret.encode(), SIGNING_KEY_LABEL + b":" + admin_key.encode(), hashlib.sha256).digest()
+```
+
+Admin tokens were already signed with `HONEYTOKEN_SECRET`, the same key that signs the public decoy keys, with the passphrase placed inside the message. Now the signing key is derived from both secrets with a fixed label (`eidolon/admin-session/v1`), so one key never serves two jobs and rotating either secret revokes all sessions. The task suggested deriving the key from `ADMIN_KEY` alone; I did not, because a human-chosen passphrase can be guessed offline from a captured token, while `HONEYTOKEN_SECRET` is random. Comparisons use `hmac.compare_digest`, which takes the same time wherever the first difference is; the passphrase is hashed first so even its length does not leak:
+
+```python
+return hmac.compare_digest(hashlib.sha256(candidate.encode()).digest(), hashlib.sha256(expected.encode()).digest())
+```
+
+**Validate before side effects.** Previously `/trap/{any-id}` wrote a database row, called ip-api and pushed to ntfy before anything checked the id. Now:
+
+```python
+trap = db.query(Trap).filter(Trap.id == trap_id).first()
+if not trap:
+    log.info("trap page requested for an unknown id %r", clean(trap_id))
+    return _page()
+```
+
+The visitor sees the same page, so nothing reveals which ids exist, but the attacker pays for nothing and we spend nothing. Order matters: cheapest, side-effect-free check first; expensive or irreversible actions last.
+
+**Alert deduplication and the limits of in-memory state.**
+
+```python
+def should_alert(key: str) -> bool:
+    now = time.monotonic()
+    last = _last_alert_at.get(key)
+    if last is not None and now - last < ALERT_WINDOW_SECONDS:
+        return False
+    _last_alert_at[key] = now
+    return True
+```
+
+Repeat hits are still saved and counted; only the phone push is throttled, so one visitor refreshing the page cannot flood ntfy. The dictionary lives in process memory, so it resets on restart and each web worker would have its own copy. Acceptable here (worst case: one extra push); it would not be for anything that must be exact. `time.monotonic()` is used instead of wall-clock time so clock changes cannot break the window.
+
+**Sanitising visitor text.** Headers like `User-Agent` are controlled by the visitor. Before they go into a log line or the ntfy body, `clean()` replaces control characters (newlines included) and caps the length, so nobody can forge extra log lines or alert fields.
+
+### Likely interview questions
+
+1. *Why take `X-Forwarded-For` from the right?* — Each proxy appends the address it saw to the right end, so the left side is whatever the client sent and can be forged. You count the number of proxies you own from the right, and fall back to the socket address if the header does not fit that shape.
+2. *What does "fail closed" mean, and where did you apply it?* — When config is missing or invalid, deny or refuse by default instead of running in a weaker mode. The app now won't start with blank, short or placeholder secrets, and a blank key can't sign or verify admin tokens even in dev mode.
+3. *Why check the id before logging or calling external services?* — Unauthenticated requests should not be able to cause writes, paid/third-party calls or notifications. Validate cheaply first, so invalid traffic costs almost nothing and reveals nothing.
+
+### Mistakes to avoid
+
+- Reading the leftmost `X-Forwarded-For` entry, or trusting the header with no idea how many proxies are in front.
+- Changing the code but not the start command: uvicorn's own `--proxy-headers` rewrites the address first.
+- A blank secret treated as "set" (an empty HMAC key still produces valid signatures).
+- Putting a secret's value in an error message or log.
+- Using one key for two purposes (public decoy keys and admin sessions).
+- Tests that pass only because an id they use happens not to exist: unknown trap ids now do nothing, so those tests had to create a real trap.
+
+### Left unfixed (found along the way)
+
+- `/trap/{id}` and `/trap/{id}/login` still do synchronous database calls inside async handlers, and the geolocation lookup still runs before the response (up to 5 s).
+- INFO logs are not shown yet: no logging is configured, so only warnings and errors reach the console (Pass 7).
+- The Dossier "decoy" button still sends the in-memory counter instead of the finding hash (Pass 8).
+- Admin sessions issued before this deploy stop working (the signing key changed); log in again.

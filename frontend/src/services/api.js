@@ -72,7 +72,9 @@ export function createTrap({ name, source_type, context }) {
 }
 
 export async function deployDecoy(findingId) {
-  const res = await fetch(`${API_BASE}/api/findings/${findingId}/deploy-decoy`, { method: "POST" })
+  const headers = adminHeaders()
+  if (!headers) throw new Error("Deploying decoys is admin-only in this public demo.")
+  const res = await fetch(`${API_BASE}/api/findings/${findingId}/deploy-decoy`, { method: "POST", headers })
   if (!res.ok) throw await failure(res)
   return res.json()
 }
@@ -92,6 +94,15 @@ export async function deleteTrap(trapId) {
 
 export async function getTrapAlerts() {
   const res = await fetch(`${API_BASE}/api/traps/alerts`, { headers: adminHeaders() ?? {} })
+  if (!res.ok) throw await failure(res)
+  return res.json()
+}
+
+// Admin-only: what the server sees for this request (used by the System page's Client IP check).
+export async function getClientIpDiagnostics() {
+  const headers = adminHeaders()
+  if (!headers) throw new Error("Client IP check is admin-only.")
+  const res = await fetch(`${API_BASE}/api/admin/diagnostics/client-ip`, { headers })
   if (!res.ok) throw await failure(res)
   return res.json()
 }

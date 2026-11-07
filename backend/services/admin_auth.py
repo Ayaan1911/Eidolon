@@ -2,31 +2,50 @@
 
 Same idea as the honeytoken: the token carries its own expiry and an HMAC
 signature, so verifying is a recompute - no database, no session store, and it
-survives Render's free-tier restarts. ADMIN_KEY is folded into the signed
-message, so rotating (or unsetting) it revokes every token already issued.
-The "admin:" prefix keeps these signatures apart from honeytoken ones, whose
-payloads always start with a hex nonce.
+survives Render's free-tier restarts.
+
+Key separation: tokens are NOT signed with HONEYTOKEN_SECRET itself (that key signs
+the public decoy keys), nor with the passphrase (a human-chosen passphrase could be
+guessed offline from a captured token). The signing key is derived from both with a
+labelled HMAC, so rotating either secret revokes every token already issued.
 """
 
+import hashlib
 import hmac
 import os
 import time
 
 from fastapi import HTTPException, Request
 
-from services.honeytoken import sign
 
 TOKEN_PREFIX = "eidolon_admin_"
 TOKEN_TTL_SECONDS = 24 * 60 * 60
+# Fixed label so the derived key can never equal a key used for anything else.
+SIGNING_KEY_LABEL = b"eidolon/admin-session/v1"
 
 
 def passphrase_matches(candidate: str) -> bool:
     expected = os.environ.get("ADMIN_KEY", "")
-    return bool(expected) and hmac.compare_digest(candidate.encode(), expected.encode())
+    if not expected:
+        return False
+    # Hash both sides first so compare_digest sees equal-length inputs: the time taken
+    # then says nothing about the real passphrase's length.
+    return hmac.compare_digest(
+        hashlib.sha256(candidate.encode()).digest(), hashlib.sha256(expected.encode()).digest()
+    )
+
+
+def _signing_key() -> bytes:
+    """Derived from both secrets; KeyError if either is missing, ValueError if either is blank."""
+    admin_key = os.environ["ADMIN_KEY"]
+    honeytoken_secret = os.environ["HONEYTOKEN_SECRET"]
+    if not admin_key or not honeytoken_secret:
+        raise ValueError("secrets not configured")  # never sign or verify with an empty key
+    return hmac.new(honeytoken_secret.encode(), SIGNING_KEY_LABEL + b":" + admin_key.encode(), hashlib.sha256).digest()
 
 
 def _signature(expires_at: int) -> str:
-    return sign(f"admin:{expires_at}:{os.environ['ADMIN_KEY']}")
+    return hmac.new(_signing_key(), f"admin:{expires_at}".encode(), hashlib.sha256).hexdigest()
 
 
 def issue_token(now: float | None = None) -> tuple[str, int]:
@@ -42,7 +61,7 @@ def is_valid_admin_token(token: str | None, now: float | None = None) -> bool:
         return False
     try:
         expected = _signature(int(expiry))
-    except KeyError:  # ADMIN_KEY or HONEYTOKEN_SECRET not configured
+    except (KeyError, ValueError):  # ADMIN_KEY or HONEYTOKEN_SECRET missing or blank
         return False
     if not hmac.compare_digest(sig.encode(), expected.encode()):
         return False

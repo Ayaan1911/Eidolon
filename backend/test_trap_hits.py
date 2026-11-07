@@ -15,6 +15,11 @@ SECRET_PASSWORD = "SuperSecret!Pa55word"
 LOGIN = {"email": "victim@example.com", "password_length": len(SECRET_PASSWORD)}
 
 
+@pytest.fixture(autouse=True)
+def _trap_t1(make_trap):
+    make_trap("t1")  # these tests hit /trap/t1, which must be a real trap
+
+
 @pytest.fixture
 def last_alert(session_factory):
     def get():

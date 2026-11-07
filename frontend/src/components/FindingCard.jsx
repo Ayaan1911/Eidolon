@@ -57,7 +57,7 @@ export default function FindingCard({ finding, sourceLabel, status, isAdmin }) {
   const [findingTrapError, setFindingTrapError] = useState(null)
 
   const canTrap = finding.type === "breach"
-  const canDeployDecoy = finding.type === "secret"
+  const canDeployDecoy = finding.type === "secret" && isAdmin
   const canDeployFindingTrap = finding.type === "secret" && isAdmin
 
   async function deployFindingTrap() {
