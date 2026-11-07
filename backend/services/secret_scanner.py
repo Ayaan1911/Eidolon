@@ -10,10 +10,14 @@ _LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 _PATTERNS: dict[str, str] = {
     "AWS Access Key": r"AKIA[0-9A-Z]{16}",
     "Google API Key": r"AIza[0-9A-Za-z\-_]{35}",
-    "Private Key": r"-----BEGIN ([A-Z]+ )?PRIVATE KEY-----",
+    "Private Key": r"-----BEGIN (?:[A-Z]{1,32} )?PRIVATE KEY-----",
     "Slack Token": r"xox[baprs]-[0-9a-zA-Z]{10,48}",
     "Stripe Secret Key": r"sk_(?:live|test)_[0-9a-zA-Z]{24}",
-    "Password in URL": r"[a-zA-Z][a-zA-Z0-9+.-]*://([^\s/:@]+):([^\s/:@]+)@[^\s/]+",
+    # Every quantifier is bounded, so the work at any start position is a constant and a
+    # whole line costs O(len). The old unbounded `[a-zA-Z0-9+.-]*` scheme rescanned the
+    # rest of a long letter run from every start position - quadratic (~7s for 80 KB).
+    # The bounds are generous (RFC 3986 schemes are short; hostnames cap at 253).
+    "Password in URL": r"[a-zA-Z][a-zA-Z0-9+.-]{0,31}://([^\s/:@]{1,128}):([^\s/:@]{1,256})@[^\s/]{1,255}",
 }
 
 _CRITICAL_TYPES = {"AWS Access Key", "Google API Key", "Private Key", "Stripe Secret Key"}
