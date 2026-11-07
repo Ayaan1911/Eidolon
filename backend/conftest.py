@@ -3,7 +3,8 @@
 - a fresh in-memory SQLite database (nothing touches eidolon.db),
 - monkeypatched environment variables (restored after the test, never mutated at import),
 - cleared in-memory rate-limit and breach-metadata state,
-- stubbed geolocation and ntfy (no network), and
+- stubbed geolocation and ntfy (no network),
+- a guard that fails any test making a real outbound network connection, and
 - an app.dependency_overrides that is restored afterwards.
 
 Test modules must not set os.environ, app.dependency_overrides or module attributes at
@@ -11,6 +12,9 @@ import time; use these fixtures and the `monkeypatch` fixture instead.
 
 Run from backend/:  python -m pytest
 """
+
+import ipaddress
+import socket
 
 import pytest
 from fastapi.testclient import TestClient
@@ -44,6 +48,41 @@ def _env(monkeypatch):
     # Anything a developer's real backend/.env might have loaded must not leak into tests.
     for name in ("GITHUB_TOKEN", "NTFY_TOPIC", "RENDER_GIT_COMMIT"):
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _block_outbound_network(monkeypatch):
+    """Fail loudly if a test tries a real network connection.
+
+    Loopback is still allowed: on Windows the asyncio event loop talks to itself over a
+    127.0.0.1 socket pair, and TestClient needs the event loop. Anything else (a real
+    API host, an IP on the internet) raises, so a forgotten mock cannot hide as a pass.
+    """
+    real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+
+    def is_loopback(address):
+        # AF_UNIX addresses are plain strings; AF_INET/AF_INET6 are (host, port, ...) tuples.
+        if not isinstance(address, tuple):
+            return True
+        host = address[0]
+        if host == "localhost":
+            return True
+        try:
+            return ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            return False  # a hostname that is not localhost
+
+    def guard(real):
+        def wrapper(self, address):
+            if not is_loopback(address):
+                raise RuntimeError(f"Test tried a real network connection to {address!r}; mock it")
+            return real(self, address)
+
+        return wrapper
+
+    monkeypatch.setattr(socket.socket, "connect", guard(real_connect))
+    monkeypatch.setattr(socket.socket, "connect_ex", guard(real_connect_ex))
 
 
 @pytest.fixture(autouse=True)
