@@ -9,9 +9,13 @@ from slowapi.errors import RateLimitExceeded
 from routers.admin import router as admin_router
 from routers.exposure import limiter, router as exposure_router
 from routers.traps import router as traps_router
+from services.client_ip import trusted_proxy_hops
 
 # Local dev: read backend/.env. Variables already set in the real environment (Render) win.
 load_dotenv()
+
+# Refuse to start on a bad TRUSTED_PROXY_HOPS instead of failing on every request later.
+trusted_proxy_hops()
 
 app = FastAPI(title="Eidolon API")
 app.state.limiter = limiter

@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from PIL import UnidentifiedImageError
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from database import Trap, get_db
@@ -16,13 +15,14 @@ from models.schemas import (
     TrapStatus,
 )
 from services.admin_auth import is_admin_request
+from services.client_ip import get_client_ip
 from services.breach_check import BreachCheckError, check_email_exposure
 from services.github_scanner import GitHubScanError, scan_user_repos
 from services.password_strength import check_password_strength
 from services.photo_metadata import extract_photo_metadata
 
 router = APIRouter(prefix="/api/exposure", tags=["exposure"])
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=get_client_ip)
 
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
 

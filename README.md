@@ -86,3 +86,24 @@ GitHub Actions on every push and pull request.
 
 Python: the repo does not pin a version (Render's is set in its dashboard). The pinned
 versions were tested on Python 3.11, which CI also uses.
+
+
+## Deploying: the client IP behind a proxy
+
+Rate limits and trap alerts need the visitor's real IP. On Render, a proxy sits in front of the
+app, so the app has to decide whose word to take. `X-Forwarded-For` can be written by anyone.
+
+- **Start command.** In the Render dashboard set it to:
+  `uvicorn main:app --host 0.0.0.0 --port $PORT --no-proxy-headers`
+  The old command (`--proxy-headers --forwarded-allow-ips=*`) makes uvicorn trust the header from
+  any sender and rewrite `request.client.host` itself, using the leftmost entry, which a visitor can
+  forge. Until it is changed, the app only sees that spoofable address; the code below cannot fix it,
+  because the rewrite happens before the app runs.
+- **`TRUSTED_PROXY_HOPS`** (default `0`) is how many proxies sit in front of the app. With `0` the
+  header is ignored and the socket address is used. With `N`, the app reads `X-Forwarded-For` from the
+  right and takes the Nth entry from the end (never the leftmost), and falls back to the socket address
+  if the header is short or not an IP.
+- **Finding the right value.** Log in as admin, open the System page, and use "Client IP check" from your
+  own network. Compare "Resolved IP" with your real public IP (search "what is my IP"). Try
+  `TRUSTED_PROXY_HOPS=1` first; if "Resolved IP" is a Render/Cloudflare address instead of yours, try `2`.
+  Pick the smallest value where it shows your own IP.

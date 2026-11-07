@@ -95,3 +95,12 @@ export async function getTrapAlerts() {
   if (!res.ok) throw await failure(res)
   return res.json()
 }
+
+// Admin-only: what the server sees for this request (used by the System page's Client IP check).
+export async function getClientIpDiagnostics() {
+  const headers = adminHeaders()
+  if (!headers) throw new Error("Client IP check is admin-only.")
+  const res = await fetch(`${API_BASE}/api/admin/diagnostics/client-ip`, { headers })
+  if (!res.ok) throw await failure(res)
+  return res.json()
+}

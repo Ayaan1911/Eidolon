@@ -1,5 +1,7 @@
 import { useState } from "react"
 import Eyebrow from "./Eyebrow"
+import ClientIpCheck from "./ClientIpCheck"
+import { getAdminToken } from "../lib/adminAuth"
 import { SystemGrid } from "../lib/systemCards"
 import { getReduceMotion, setReduceMotion, getDefaultDossierFilter, setDefaultDossierFilter } from "../lib/prefs"
 
@@ -37,6 +39,7 @@ const changelog = [
 export default function System() {
   const [reduceMotion, setReduceMotionState] = useState(getReduceMotion)
   const [defaultFilter, setDefaultFilterState] = useState(getDefaultDossierFilter)
+  const [isAdmin] = useState(() => getAdminToken() !== null)
 
   function toggleMotion() {
     const next = !reduceMotion
@@ -94,6 +97,9 @@ export default function System() {
           </div>
         </div>
       </section>
+
+      {/* Admin only: shows the IP the server resolves for this browser. */}
+      {isAdmin && <ClientIpCheck />}
 
       {/* Token panel */}
       <section className="mt-16">

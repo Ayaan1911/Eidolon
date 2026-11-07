@@ -17,6 +17,7 @@ from models.schemas import (
     TrapLoginAttempt,
 )
 from services.admin_auth import require_admin
+from services.client_ip import get_client_ip
 from services.geolocation import lookup_ip
 from services.honeytoken import generate_token, is_valid_token
 from services.ntfy_alert import send_ntfy_alert
@@ -52,7 +53,7 @@ async def _record_hit(
 ) -> Alert:
     """Log one visitor hit with the network/browser context shared by page
     loads and login submissions. login_fields are set only for the latter."""
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     geo = await lookup_ip(ip)
     ua = parse(request.headers.get("user-agent", ""))
 
@@ -191,7 +192,7 @@ async def verify_key(request: Request) -> None:
     on state surviving between requests.
     """
     if is_valid_token(_extract_key(request)):
-        ip = request.client.host if request.client else "unknown"
+        ip = get_client_ip(request)
         geo = await lookup_ip(ip)
         await send_ntfy_alert(
             "Honeytoken triggered",
