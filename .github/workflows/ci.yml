@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      # ponytail: no Python version is pinned in this repo (Render's is set in its dashboard,
+      # which I cannot see). 3.11 is the version the pinned requirements were tested on and
+      # the one the README names. If Render runs something else, change it here and in the README.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          # requirements-dev.txt only *includes* requirements.txt, so hash both files.
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      # Lint rules live in backend/ruff.toml.
+      - run: ruff check .
+      # No secrets needed: conftest.py sets dummy ADMIN_KEY / HONEYTOKEN_SECRET, stubs
+      # geolocation and ntfy, and blocks real network calls; other external APIs are
+      # mocked inside the tests that use them.
+      # The coverage floor is 3 points under the measured 92% (app code only, not tests).
+      - run: >
+          python -m pytest
+          --cov=services --cov=routers --cov=database --cov=main --cov=models
+          --cov-report=term-missing --cov-fail-under=89
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      # oxlint exits 0 on warnings (the 2 existing only-export-components ones), non-zero on errors.
+      - run: npm run lint
+      - run: npm run build
+        env:
+          # Dummy value: only checks that a production build succeeds; nothing is deployed.
+          VITE_API_BASE: https://api.example.invalid

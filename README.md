@@ -1,5 +1,6 @@
 # Eidolon
 
+[![CI](https://github.com/Ayaan1911/Eidolon/actions/workflows/ci.yml/badge.svg)](https://github.com/Ayaan1911/Eidolon/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Backend](https://img.shields.io/badge/backend-Python%20%2F%20FastAPI-3776AB)
 ![Frontend](https://img.shields.io/badge/frontend-React%20%2F%20Vite-61DAFB)
@@ -57,7 +58,7 @@ Mirror findings) aren't built yet.
 # backend
 cd backend
 python -m venv .venv && source .venv/Scripts/activate
-pip install -r requirements.txt
+pip install -r requirements.txt   # runtime dependencies, pinned to exact versions
 uvicorn main:app --reload --port 8001
 
 # frontend
@@ -65,3 +66,23 @@ cd frontend
 npm install
 npm run dev
 ```
+
+## Running tests
+
+```bash
+# backend (from backend/, with the venv active)
+pip install -r requirements-dev.txt   # requirements.txt plus pytest, pytest-cov, pytest-randomly, ruff
+python -m pytest
+
+# frontend
+cd frontend
+npm run lint
+npm run build
+```
+
+Tests need no secrets or network: `backend/conftest.py` supplies dummy environment values,
+a fresh in-memory database per test, and stubs for external services. The same checks run in
+GitHub Actions on every push and pull request.
+
+Python: the repo does not pin a version (Render's is set in its dashboard). The pinned
+versions were tested on Python 3.11, which CI also uses.

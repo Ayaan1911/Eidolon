@@ -16,3 +16,8 @@ dist/
 
 # trap alert database — runtime data, not source
 backend/*.db
+
+# test / lint tooling output
+.coverage
+.pytest_cache/
+.ruff_cache/

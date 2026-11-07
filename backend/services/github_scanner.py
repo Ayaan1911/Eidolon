@@ -6,11 +6,14 @@ from urllib.parse import quote
 
 import httpx
 
-from services.secret_scanner import scan_text_for_secrets
+from services.secret_scanner import scan_text
 
 GITHUB_API = "https://api.github.com"
 MAX_REPOS = 10
 MAX_FILE_BYTES = 500_000
+# Total declared bytes fetched for one scan request, across all repos. Bounds the
+# fan-out of a single unauthenticated request; the per-file cap above bounds one file.
+MAX_TOTAL_BYTES = 20_000_000
 CONCURRENCY = 5
 REQUEST_TIMEOUT = 10.0
 
@@ -93,6 +96,19 @@ def _is_candidate(path: str, size: int) -> bool:
     return ext not in _BINARY_EXTENSIONS
 
 
+def _within_budget(candidates: list[dict], remaining: int) -> tuple[list[dict], int, bool]:
+    """Longest prefix of candidates whose declared sizes fit in `remaining` bytes.
+    Returns (kept, bytes_used, truncated)."""
+    kept, used = [], 0
+    for item in candidates:
+        size = item.get("size", 0)
+        if used + size > remaining:
+            return kept, used, True
+        kept.append(item)
+        used += size
+    return kept, used, False
+
+
 async def _list_repos(client: httpx.AsyncClient, username: str) -> tuple[list[dict], bool]:
     try:
         resp = await client.get(
@@ -162,6 +178,9 @@ async def scan_user_repos(username: str) -> dict:
         total_findings = 0
         repos_scanned = 0
         incomplete = False
+        incomplete_reason = None
+        skipped_long_lines = 0
+        bytes_left = MAX_TOTAL_BYTES
 
         for repo in repos:
             owner = repo["owner"]["login"]
@@ -174,6 +193,7 @@ async def scan_user_repos(username: str) -> dict:
                 continue
             if rate_limited:
                 incomplete = True
+                incomplete_reason = _rate_limit_reason(mid_scan=True)
                 break
 
             candidates = [
@@ -181,6 +201,8 @@ async def scan_user_repos(username: str) -> dict:
                 for item in tree
                 if item.get("type") == "blob" and _is_candidate(item["path"], item.get("size", 0))
             ]
+            candidates, used, over_budget = _within_budget(candidates, bytes_left)
+            bytes_left -= used
             contents = await asyncio.gather(
                 *(_fetch_file(client, owner, name, branch, item["path"], sem) for item in candidates)
             )
@@ -190,7 +212,13 @@ async def scan_user_repos(username: str) -> dict:
             for item, content in zip(candidates, contents):
                 if content is None:
                     continue
-                for finding in scan_text_for_secrets(content, path=item["path"]):
+                # Worker thread so a normal heavy scan doesn't starve the event loop.
+                # This does NOT rescue a catastrophic regex: `re` holds the GIL while it
+                # matches, so such a pattern would still freeze the loop. Linear patterns
+                # (secret_scanner._PATTERNS) and MAX_LINE_CHARS are the real protection.
+                outcome = await asyncio.to_thread(scan_text, content, item["path"])
+                skipped_long_lines += outcome.skipped_long_lines
+                for finding in outcome.findings:
                     full = {**finding, "file": item["path"]}
                     full["id"] = _finding_id(repo_label, full["file"], full["line"], full["type"])
                     repo_findings.append(full)
@@ -200,11 +228,20 @@ async def scan_user_repos(username: str) -> dict:
                 total_findings += len(repo_findings)
                 results.append({"repo": repo_label, "findings": repo_findings})
 
+            if over_budget:
+                incomplete = True
+                incomplete_reason = (
+                    f"scan size budget reached ({MAX_TOTAL_BYTES // 1_000_000} MB per scan); "
+                    "later files and repos were not scanned"
+                )
+                break
+
         return {
             "username": username,
             "repos_scanned": repos_scanned,
             "total_findings": total_findings,
             "results": results,
             "incomplete": incomplete,
-            "incomplete_reason": _rate_limit_reason(mid_scan=True) if incomplete else None,
+            "incomplete_reason": incomplete_reason,
+            "skipped_long_lines": skipped_long_lines,
         }

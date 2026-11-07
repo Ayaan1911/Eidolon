@@ -1,0 +1,6 @@
+# Pyflakes (unused imports/variables, undefined names) plus the E4/E7/E9 pycodestyle
+# errors (import position, statement style, syntax). Ruff 0.17's own default set is
+# wider and flags 13 style items (FastAPI's Depends() defaults, import order, utcnow);
+# those are listed as follow-ups in docs/learning/eidolon-notes.md, not fixed here.
+[lint]
+select = ["F", "E4", "E7", "E9"]
