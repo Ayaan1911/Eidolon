@@ -72,7 +72,9 @@ export function createTrap({ name, source_type, context }) {
 }
 
 export async function deployDecoy(findingId) {
-  const res = await fetch(`${API_BASE}/api/findings/${findingId}/deploy-decoy`, { method: "POST" })
+  const headers = adminHeaders()
+  if (!headers) throw new Error("Deploying decoys is admin-only in this public demo.")
+  const res = await fetch(`${API_BASE}/api/findings/${findingId}/deploy-decoy`, { method: "POST", headers })
   if (!res.ok) throw await failure(res)
   return res.json()
 }

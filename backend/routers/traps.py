@@ -16,6 +16,7 @@ from models.schemas import (
     TrapCreateResponse,
     TrapLoginAttempt,
 )
+from routers.exposure import limiter
 from services.admin_auth import require_admin
 from services.client_ip import get_client_ip
 from services.geolocation import lookup_ip
@@ -29,6 +30,7 @@ _FALLBACK_HTML = "<html><body><h1>Admin Login</h1><p>System Maintenance</p></bod
 
 _INVALID_KEY_ERROR = {"detail": "Invalid or expired API key"}
 _MAX_REFERER = 500
+VERIFY_LIMIT = "30/minute"  # per client IP
 
 
 def _extract_key(request: Request) -> str | None:
@@ -168,19 +170,29 @@ async def delete_trap(trap_id: str, db: Session = Depends(get_db)) -> Response:
     return Response(status_code=204)
 
 
-@router.post("/api/traps/honeytoken", response_model=HoneytokenResponse)
+# Minting a decoy key is a Trap Lab action, so it needs the admin session like the rest of Trap Lab.
+@router.post(
+    "/api/traps/honeytoken", response_model=HoneytokenResponse, dependencies=[Depends(require_admin)]
+)
 async def create_honeytoken(request: Request) -> HoneytokenResponse:
     return HoneytokenResponse(token=generate_token(), base_url=str(request.base_url).rstrip("/"))
 
 
-@router.post("/api/findings/{finding_id}/deploy-decoy", response_model=HoneytokenResponse)
+@router.post(
+    "/api/findings/{finding_id}/deploy-decoy",
+    response_model=HoneytokenResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def deploy_decoy(finding_id: str, request: Request) -> HoneytokenResponse:
     return HoneytokenResponse(
         token=generate_token(finding_id), base_url=str(request.base_url).rstrip("/")
     )
 
 
+# Not admin-gated on purpose: it has to look like an ordinary public "is my key valid" endpoint.
+# Nothing in this repo calls it; whoever holds a stolen decoy key would. So it is rate limited per IP.
 @router.get("/api/internal/verify")
+@limiter.limit(VERIFY_LIMIT)
 async def verify_key(request: Request) -> None:
     """Looks like a real "is my API key still valid" endpoint. A decoy key
     never gets a real answer - hitting it at all is the signal, so match or
