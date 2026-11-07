@@ -14,6 +14,7 @@ Run from backend/:  python -m pytest
 """
 
 import ipaddress
+import os
 import socket
 
 import pytest
@@ -22,7 +23,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-import main
+# main.py checks the secrets when it is imported, before any fixture runs, so dev mode is
+# switched on here. The tests that exercise the check itself turn it off with monkeypatch.
+os.environ.setdefault("EIDOLON_ENV", "dev")
+
+import main  # noqa: E402
 from database import Base, get_db
 from routers import exposure, traps
 from services import admin_auth, breach_check

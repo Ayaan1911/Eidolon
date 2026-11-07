@@ -107,3 +107,18 @@ app, so the app has to decide whose word to take. `X-Forwarded-For` can be writt
   own network. Compare "Resolved IP" with your real public IP (search "what is my IP"). Try
   `TRUSTED_PROXY_HOPS=1` first; if "Resolved IP" is a Render/Cloudflare address instead of yours, try `2`.
   Pick the smallest value where it shows your own IP.
+
+
+## Secrets
+
+The backend refuses to start unless `ADMIN_KEY` (at least 12 characters) and `HONEYTOKEN_SECRET`
+(at least 16) are set to real values, not blank and not the `CHANGE_ME...` placeholders from
+`backend/.env.example`. The error names the variable and its length, never its value. Generate them:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"   # HONEYTOKEN_SECRET
+python -c "import secrets; print(secrets.token_urlsafe(24))"   # ADMIN_KEY (the passphrase you log in with)
+```
+
+Set both in the Render dashboard (and in a local `backend/.env`, which is not committed). For local
+development only, `EIDOLON_ENV=dev` skips the check; never set it on Render.

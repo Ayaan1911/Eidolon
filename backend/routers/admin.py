@@ -7,9 +7,12 @@ from services.client_ip import get_client_ip, socket_peer, trusted_proxy_hops
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
+# Per client IP (see services/client_ip.py), so one guesser cannot lock out the others.
+ADMIN_LOGIN_LIMIT = "5/minute"
+
 
 @router.post("/login", response_model=AdminLoginResponse)
-@limiter.limit("5/minute")
+@limiter.limit(ADMIN_LOGIN_LIMIT)
 async def admin_login(request: Request, body: AdminLoginRequest) -> AdminLoginResponse:
     # Deliberately generic: nothing about why a login failed (wrong passphrase,
     # ADMIN_KEY unset) is ever reported back.
