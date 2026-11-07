@@ -12,7 +12,13 @@ the URL contains the database password and error messages end up in logs.
 
 import os
 
+from dotenv import load_dotenv
 from sqlalchemy.engine import URL, make_url
+
+# The engine is built when `database` is imported, which happens before main.py reaches its own
+# load_dotenv(). Loading backend/.env here too means a local DATABASE_URL is seen by the app AND by
+# Alembic. Variables already set in the real environment (Render) still win.
+load_dotenv()
 
 DATABASE_URL_ENV = "DATABASE_URL"
 SQLITE_DEV_URL = "sqlite:///eidolon.db"

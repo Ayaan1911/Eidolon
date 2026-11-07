@@ -54,7 +54,7 @@ def _env(monkeypatch):
     monkeypatch.setenv("ADMIN_KEY", ADMIN_KEY)
     monkeypatch.setenv("HONEYTOKEN_SECRET", HONEYTOKEN_SECRET)
     # Anything a developer's real backend/.env might have loaded must not leak into tests.
-    for name in ("GITHUB_TOKEN", "NTFY_TOPIC", "RENDER_GIT_COMMIT"):
+    for name in ("GITHUB_TOKEN", "NTFY_TOPIC", "RENDER_GIT_COMMIT", "DATABASE_URL", "RETENTION_DAYS", "TRUSTED_PROXY_HOPS"):
         monkeypatch.delenv(name, raising=False)
 
 
