@@ -1,3 +1,7 @@
+import hashlib
+import logging
+import re
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -30,7 +34,40 @@ _FALLBACK_HTML = "<html><body><h1>Admin Login</h1><p>System Maintenance</p></bod
 
 _INVALID_KEY_ERROR = {"detail": "Invalid or expired API key"}
 _MAX_REFERER = 500
-VERIFY_LIMIT = "30/minute"  # per client IP
+
+# Per client IP. Trap pages are public by design, so they get limits instead of a login.
+TRAP_PAGE_LIMIT = "30/minute"
+TRAP_LOGIN_LIMIT = "10/minute"
+VERIFY_LIMIT = "30/minute"
+
+# At most one ntfy push per trap per window; repeat hits are still logged and counted.
+# In memory, so it resets when the server restarts - acceptable: the worst case is one extra push.
+ALERT_WINDOW_SECONDS = 5 * 60
+_last_alert_at: dict[str, float] = {}
+
+log = logging.getLogger("eidolon.traps")
+
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+_MAX_LOGGED = 80
+
+
+def clean(value: object, limit: int = _MAX_LOGGED) -> str:
+    """Make visitor-controlled text safe for logs and the ntfy body: no line breaks or
+    control characters (so nobody can forge extra log lines or alert fields), and capped."""
+    return _CONTROL_CHARS.sub(" ", str(value))[:limit]
+
+
+def should_alert(key: str) -> bool:
+    """True if no push went out for this key in the last ALERT_WINDOW_SECONDS (and notes this one)."""
+    now = time.monotonic()
+    last = _last_alert_at.get(key)
+    if last is not None and now - last < ALERT_WINDOW_SECONDS:
+        return False
+    if len(_last_alert_at) > 1000:  # keep the dict small: forget keys whose window has passed
+        for k in [k for k, t in _last_alert_at.items() if now - t >= ALERT_WINDOW_SECONDS]:
+            del _last_alert_at[k]
+    _last_alert_at[key] = now
+    return True
 
 
 def _extract_key(request: Request) -> str | None:
@@ -78,35 +115,44 @@ async def _record_hit(
     return alert
 
 
-@router.get("/trap/{trap_id}", response_class=HTMLResponse)
-async def trigger_trap(trap_id: str, request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
-    trap = db.query(Trap).filter(Trap.id == trap_id).first()
-    trap_name = trap.name if trap else trap_id
-
-    # Capped: the header is visitor-controlled and can be arbitrarily long.
-    referer = request.headers.get("referer", "")[:_MAX_REFERER] or None
-    alert = await _record_hit(db, request, trap_id, referer=referer)
-    if trap:
-        trap.trigger_count += 1
-    db.commit()
-
-    await send_ntfy_alert(
-        f"Trap '{trap_name}' triggered",
-        {
-            "IP": alert.ip,
-            "Location": alert.location,
-            "ISP": alert.isp,
-            "Browser": alert.browser,
-            "OS": alert.os,
-            "Device": alert.device,
-        },
-    )
-
+def _page() -> HTMLResponse:
     html = _TEMPLATE_PATH.read_text(encoding="utf-8") if _TEMPLATE_PATH.exists() else _FALLBACK_HTML
     return HTMLResponse(html)
 
 
+@router.get("/trap/{trap_id}", response_class=HTMLResponse)
+@limiter.limit(TRAP_PAGE_LIMIT)
+async def trigger_trap(trap_id: str, request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    # Decide validity first, with no side effects: an id that is not a real trap gets the
+    # same page but writes no row, calls no geolocation API and sends no push.
+    trap = db.query(Trap).filter(Trap.id == trap_id).first()
+    if not trap:
+        log.info("trap page requested for an unknown id %r", clean(trap_id))
+        return _page()
+
+    # Capped: the header is visitor-controlled and can be arbitrarily long.
+    referer = request.headers.get("referer", "")[:_MAX_REFERER] or None
+    alert = await _record_hit(db, request, trap_id, referer=referer)
+    trap.trigger_count += 1
+    db.commit()
+
+    if should_alert(f"trap:{trap.id}"):
+        await send_ntfy_alert(
+            f"Trap '{trap.name}' triggered",
+            {
+                "IP": clean(alert.ip),
+                "Location": clean(alert.location),
+                "ISP": clean(alert.isp),
+                "Browser": clean(alert.browser),
+                "OS": clean(alert.os),
+                "Device": clean(alert.device),
+            },
+        )
+    return _page()
+
+
 @router.post("/trap/{trap_id}/login", status_code=204)
+@limiter.limit(TRAP_LOGIN_LIMIT)
 async def trap_login_attempt(
     trap_id: str, body: TrapLoginAttempt, request: Request, db: Session = Depends(get_db)
 ) -> Response:
@@ -115,6 +161,11 @@ async def trap_login_attempt(
     email/username as-is and only the password's length. No referrer: the
     browser sends the trap page itself here, and where the visitor really came
     from is already on the page-load hit."""
+    # Same rule as the page: only a real trap's id is worth a database row and a lookup.
+    if not db.query(Trap).filter(Trap.id == trap_id).first():
+        log.info("trap login submitted for an unknown id %r", clean(trap_id))
+        return Response(status_code=204)
+
     await _record_hit(
         db,
         request,
@@ -203,18 +254,23 @@ async def verify_key(request: Request) -> None:
     Render's free tier wipes local disk on restart, so nothing here counts
     on state surviving between requests.
     """
-    if is_valid_token(_extract_key(request)):
+    key = _extract_key(request)
+    if not is_valid_token(key):
+        log.info("honeytoken verify called with a key that does not verify")  # never log the key itself
+    else:
         ip = get_client_ip(request)
-        geo = await lookup_ip(ip)
-        await send_ntfy_alert(
-            "Honeytoken triggered",
-            {
-                "Timestamp": datetime.utcnow().isoformat() + "Z",
-                "IP": ip,
-                "Location": f"{geo.get('city', 'Unknown')}, {geo.get('country', 'Unknown')}",
-                "Endpoint": "/api/internal/verify",
-            },
-        )
+        # One push per key per window (a hash, so the key itself is never stored).
+        if should_alert("token:" + hashlib.sha256(key.encode()).hexdigest()[:16]):
+            geo = await lookup_ip(ip)
+            await send_ntfy_alert(
+                "Honeytoken triggered",
+                {
+                    "Timestamp": datetime.utcnow().isoformat() + "Z",
+                    "IP": clean(ip),
+                    "Location": clean(f"{geo.get('city', 'Unknown')}, {geo.get('country', 'Unknown')}"),
+                    "Endpoint": "/api/internal/verify",
+                },
+            )
 
     raise HTTPException(status_code=401, detail=_INVALID_KEY_ERROR["detail"])
 

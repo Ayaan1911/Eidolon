@@ -28,7 +28,7 @@ from sqlalchemy.pool import StaticPool
 os.environ.setdefault("EIDOLON_ENV", "dev")
 
 import main  # noqa: E402
-from database import Base, get_db
+from database import Base, Trap, get_db
 from routers import exposure, traps
 from services import admin_auth, breach_check
 
@@ -94,9 +94,11 @@ def _block_outbound_network(monkeypatch):
 def _reset_in_memory_state():
     exposure.limiter.reset()
     breach_check._metadata_cache.clear()
+    traps._last_alert_at.clear()
     yield
     exposure.limiter.reset()
     breach_check._metadata_cache.clear()
+    traps._last_alert_at.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -140,6 +142,20 @@ def _override_db(session_factory):
     yield
     main.app.dependency_overrides.clear()
     main.app.dependency_overrides.update(saved)
+
+
+@pytest.fixture
+def make_trap(session_factory):
+    """Create a real trap row. Unknown trap ids are ignored by the trap routes, so any test
+    that wants a hit logged needs a trap that exists."""
+
+    def make(trap_id: str = "t1", name: str = "Test trap") -> str:
+        with session_factory() as db:
+            db.add(Trap(id=trap_id, name=name))
+            db.commit()
+        return trap_id
+
+    return make
 
 
 @pytest.fixture

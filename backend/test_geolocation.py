@@ -25,6 +25,11 @@ IP_API_OK = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _trap_t1(make_trap):
+    make_trap("t1")  # the trap routes ignore unknown ids
+
+
 @pytest.fixture
 def use_real_lookup(monkeypatch):
     """conftest stubs traps.lookup_ip for every test; put the real one back for these."""
