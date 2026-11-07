@@ -7,7 +7,7 @@
 - [x] Pass 2 — test isolation and pinned dependencies (done on `fix/audit-pass-1`: 181 tests, pinned `requirements*.txt`)
 - [x] Pass 3 — CI (done: CI green, PR #1 merged)
 - [x] Pass 4a — trust boundary (done on `pass-4-trust-boundary`: client IP helper, fail-closed secrets, gated mint routes, hardened trap routes)
-- [ ] Pass 5 — Postgres on Neon with Alembic
+- [x] Pass 5 — Postgres on Neon with Alembic (done on `pass-5-postgres-alembic`, pending review; the Postgres CI job has not been seen to run)
 - [ ] Pass 6 — Docker and Compose
 - [ ] Pass 7 — logging and readiness
 - [ ] Pass 8 — Mirror honesty fixes
@@ -239,3 +239,102 @@ Repeat hits are still saved and counted; only the phone push is throttled, so on
 - INFO logs are not shown yet: no logging is configured, so only warnings and errors reach the console (Pass 7).
 - The Dossier "decoy" button still sends the in-memory counter instead of the finding hash (Pass 8).
 - Admin sessions issued before this deploy stop working (the signing key changed); log in again.
+
+## Revision note — Pass 5: Postgres on Neon with Alembic
+
+**What changed and why.** Traps and hits lived in a SQLite file on Render's free disk, which is wiped on every redeploy and spin-down, and the schema was changed by a hand-written `ALTER TABLE` helper. Now:
+
+- The app reads one `DATABASE_URL` (`backend/db_config.py`), uses Postgres in production, and refuses to start if it is missing outside `EIDOLON_ENV=dev`, or points at a remote host without SSL.
+- The engine has a small pool, `pool_pre_ping`, `pool_recycle` and a connect timeout, tuned for Neon suspending idle databases.
+- Alembic owns the schema (`backend/migrations/`). `create_all` and the `ALTER TABLE` helper are gone. The deploy command runs `alembic upgrade head` first.
+- Old hits are deleted at startup (`RETENTION_DAYS`, default 90, at most 5000 rows per start).
+- CI got a Postgres job.
+
+Tests: 293 → 350 passed (+3 skipped locally; they run in the CI Postgres job). App-code coverage 94%. **The Postgres checks have not been seen to pass**: there is no Postgres on this machine and running one from a third-party package was not allowed, so the first real run is the CI `postgres` job.
+
+### Key concepts
+
+**Ephemeral disk vs managed database.** A container's disk belongs to that one container; when Render rebuilds or restarts it, the disk is new. A managed database (Neon) is a separate service that keeps its own storage, so the app can be thrown away and rebuilt without losing data. The guard against ever going back is fail-closed config:
+
+```python
+if not raw:
+    if _is_dev():
+        return SQLITE_DEV_URL
+    raise DatabaseConfigError(f"{DATABASE_URL_ENV} is not set. Refusing to start without a database ...")
+```
+
+SQLite is only reachable by explicitly saying `EIDOLON_ENV=dev`. Remote hosts must also encrypt:
+
+```python
+if sslmode not in SSL_MODES:   # {"require", "verify-ca", "verify-full"}
+    raise DatabaseConfigError(f"{DATABASE_URL_ENV} points at a remote host without SSL. ...")
+```
+
+The messages never contain the URL, because the URL holds the password. The parser's own exception is dropped (`raise ... from None`) since it can quote the URL, and a test feeds URLs with a recognisable password and host and asserts no piece appears in any message or startup traceback.
+
+**Connection pooling, and why `pool_pre_ping` matters when a database scales to zero.** Opening a database connection is slow, so the app keeps a few open and lends them out (a pool). Neon pauses an idle database after 5 minutes; any connection that was open before then is dead, but the pool does not know. Without a check, the first request afterwards fails. With it:
+
+```python
+return create_engine(url, pool_size=3, max_overflow=2, pool_recycle=300,
+                     pool_pre_ping=True, connect_args={"connect_timeout": 10})
+```
+
+`pool_pre_ping` sends a trivial query before handing out a connection and replaces it if dead; `pool_recycle=300` retires connections before Neon would; `connect_timeout=10` stops a waking database from hanging a request forever; the small pool respects the free plan's connection limit.
+
+**Schema migrations, upgrade, downgrade and the version table.** A migration is a numbered script that moves the database schema one step; Alembic records which step the database is on in a one-row table, `alembic_version`. `upgrade head` runs every step not yet applied; running it again does nothing. `downgrade` runs the undo half. Our baseline:
+
+```python
+def upgrade() -> None:
+    op.create_table("traps", ..., sa.PrimaryKeyConstraint("id", name="pk_traps"))
+    op.create_index("ix_traps_finding_id", "traps", ["finding_id"])
+    ...
+def downgrade() -> None:
+    op.drop_index("ix_alerts_timestamp", table_name="alerts")
+    ...
+```
+
+Why not `create_all`? It only creates missing tables and never changes existing ones, so any schema change needed a hand-written `ALTER TABLE`. Migrations make every change explicit, reviewable and repeatable on any database. `migrations/env.py` takes the URL from the same function as the app (`database_url()`), never from `alembic.ini`, so a password can't end up in a file.
+
+**Migration-drift testing.** Models and migrations are two descriptions of the same schema, and they can disagree if someone edits a model and forgets the migration. The test asks Alembic to compare them:
+
+```python
+command.upgrade(alembic_config(), "head")
+context = MigrationContext.configure(connection, opts={"compare_type": True})
+assert compare_metadata(context, Base.metadata) == []
+```
+
+An empty list means no difference. I checked it by adding a column to a model without a migration: the test failed. The same test runs against real Postgres in CI, and the test suite itself builds its databases with the migrations, so tests exercise the real schema.
+
+**Data retention.** A log table that only grows eventually becomes a cost and a privacy liability (it stores visitor IPs). `delete_old_alerts` deletes hits older than `RETENTION_DAYS`, in a bounded batch so a huge backlog can't delay startup:
+
+```python
+old_ids = [row.id for row in db.query(Alert.id).filter(Alert.timestamp < cutoff)
+           .order_by(Alert.timestamp).limit(MAX_DELETED_PER_RUN)]
+db.query(Alert).filter(Alert.id.in_(old_ids)).delete(synchronize_session=False)
+```
+
+It selects ids first and then deletes them because `DELETE ... LIMIT` isn't portable between SQLite and Postgres. Traps are never deleted, and only the count is logged.
+
+**Timestamps.** Columns are now `DateTime(timezone=True)` with an aware UTC default. Postgres returns aware values and SQLite naive ones, but the API must not change, so `_naive_utc_iso` converts back to the old format (UTC, no offset) before sending.
+
+### Likely interview questions
+
+1. *Why use migrations instead of `create_all`?* — `create_all` can only create what's missing; it can't alter or version anything. Migrations give an ordered, reviewable history of schema changes, an `alembic_version` record of where each database is, and a way to undo a step.
+2. *What does `pool_pre_ping` do and when do you need it?* — It tests a pooled connection with a cheap query before use and replaces it if it died. You need it whenever connections can go stale silently: a database that suspends when idle (Neon), a restarted database, or a firewall that drops idle connections.
+3. *How do you stop a configuration mistake from sending production data to the wrong place?* — Make the unsafe state impossible by default: refuse to start without `DATABASE_URL` unless an explicit dev flag is set, require SSL for remote hosts, and never print the URL in errors. Fail at startup, loudly, rather than limping on with a local disk.
+
+### Mistakes to avoid
+
+- Importing code that connects to a database at import time (I did this once with a placeholder host: `create_all` ran at import and tried a real connection; use `.invalid` hostnames in examples and keep import side-effect free).
+- Putting the database URL in a config file such as `alembic.ini`, or printing it in an error.
+- Using Neon's pooled connection string with migrations and session-level features; use the direct one.
+- Editing a model without a migration (the drift test exists for this), or editing a migration that has already run on production instead of adding a new one.
+- Assuming SQLite behaviour carries over: concurrent writers, time zones and booleans differ on Postgres, which is why CI runs a real Postgres.
+
+### Left unfixed (found along the way)
+
+- Every route is `async def` but uses the blocking SQLAlchemy session. With SQLite that cost microseconds; with Neon each query is a network round trip, and during it the whole event loop waits. Next candidates: make the DB-touching routes plain `def`, or move to an async driver.
+- `trap.trigger_count += 1` is a read-modify-write; two simultaneous hits can lose one count on Postgres. The fix is a single `UPDATE ... SET trigger_count = trigger_count + 1`.
+- The frontend parses the API's offset-less timestamps as local time (`new Date("2026-11-08T12:00:00")`), so the log clock can be off by the viewer's UTC offset.
+- Database errors that reach the logs can name the host and user (the driver includes them); the password is never included.
+- INFO-level logs (the retention count) are not visible until logging is configured (Pass 7).
