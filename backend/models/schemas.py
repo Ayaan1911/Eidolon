@@ -70,6 +70,8 @@ class RepoScanResponse(BaseModel):
     results: list[RepoFindings]
     incomplete: bool
     incomplete_reason: str | None = None
+    # Lines over the scanner's length cap that were not scanned (minified/generated code).
+    skipped_long_lines: int = 0
 
 
 class TrapCreateRequest(BaseModel):

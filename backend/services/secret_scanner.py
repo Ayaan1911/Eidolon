@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass
 
 # Filenames whose whole purpose is to hold placeholder values (.env.example,
 # config.sample.yaml, settings.template.py, .env.dist, ...). A word-boundary
@@ -6,6 +7,12 @@ import re
 # mistaken for a template file.
 _EXAMPLE_FILENAME_RE = re.compile(r"\b(example|sample|template|dist)\b", re.IGNORECASE)
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+
+# Lines longer than this are not scanned at all: they are almost always minified or
+# generated code, and capping line length bounds the work any single regex can do.
+# Skips are counted and reported (ScanOutcome.skipped_long_lines), never silent.
+# ponytail: a real secret on a 4 KB+ line is missed; raise the cap if that bites.
+MAX_LINE_CHARS = 4096
 
 _PATTERNS: dict[str, str] = {
     "AWS Access Key": r"AKIA[0-9A-Z]{16}",
@@ -78,14 +85,25 @@ def _mask(value: str) -> str:
     return f"{value[:4]}...{value[-4:]}"
 
 
-def scan_text_for_secrets(text: str, path: str = "") -> list[dict]:
-    """Scan text for known secret patterns. Never returns a raw matched value —
-    only its masked form — since a false negative here is far cheaper than a leak.
+@dataclass(frozen=True)
+class ScanOutcome:
+    findings: list[dict]
+    skipped_long_lines: int
+
+
+def scan_text(text: str, path: str = "") -> ScanOutcome:
+    """Scan text for known secret patterns. Never returns a raw matched value -
+    only its masked form - since a false negative here is far cheaper than a leak.
     `path` (the file this text came from, if any) only ever narrows what counts
-    as a placeholder - it never widens what gets flagged."""
+    as a placeholder - it never widens what gets flagged. Lines over
+    MAX_LINE_CHARS are skipped and counted."""
     in_example_file = _is_example_path(path)
     findings = []
+    skipped = 0
     for line_no, line in enumerate(text.split("\n"), start=1):
+        if len(line) > MAX_LINE_CHARS:
+            skipped += 1
+            continue
         for secret_type, pattern in _PATTERNS.items():
             for match in re.finditer(pattern, line):
                 if _is_placeholder(secret_type, match, in_example_file):
@@ -98,7 +116,12 @@ def scan_text_for_secrets(text: str, path: str = "") -> list[dict]:
                         "severity": "CRITICAL" if secret_type in _CRITICAL_TYPES else "HIGH",
                     }
                 )
-    return findings
+    return ScanOutcome(findings=findings, skipped_long_lines=skipped)
+
+
+def scan_text_for_secrets(text: str, path: str = "") -> list[dict]:
+    """Findings only; use scan_text when the skipped-line count matters."""
+    return scan_text(text, path).findings
 
 
 def _fake_url(scheme: str, user: str, password: str, host: str) -> str:
