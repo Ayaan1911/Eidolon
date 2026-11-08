@@ -59,6 +59,8 @@ Mirror findings) aren't built yet.
 cd backend
 python -m venv .venv && source .venv/Scripts/activate
 pip install -r requirements.txt   # runtime dependencies, pinned to exact versions
+cp .env.example .env              # then edit it: real ADMIN_KEY / HONEYTOKEN_SECRET, or EIDOLON_ENV=dev
+alembic upgrade head              # create or update the tables (SQLite file when EIDOLON_ENV=dev)
 uvicorn main:app --reload --port 8001
 
 # frontend
@@ -66,6 +68,31 @@ cd frontend
 npm install
 npm run dev
 ```
+
+### Optional: a local Postgres instead of SQLite
+
+With Docker installed, start a throwaway Postgres and point `DATABASE_URL` at it (in `backend/.env`).
+`localhost` does not need SSL; the password below is a placeholder for this local container only.
+
+```bash
+docker run --name eidolon-pg -e POSTGRES_PASSWORD=local-only-password -e POSTGRES_DB=eidolon -p 5432:5432 -d postgres:17
+# in backend/.env:
+# DATABASE_URL=postgresql://postgres:local-only-password@localhost:5432/eidolon
+alembic upgrade head
+```
+
+## Environment variables
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DATABASE_URL` | none | Postgres connection string (`postgres://` and `postgresql://` both work). Required unless `EIDOLON_ENV=dev`, where the default is the local SQLite file `backend/eidolon.db`. A host other than localhost must have `?sslmode=require`, otherwise the app refuses to start. Use Neon's **direct** (non-pooled) connection string. |
+| `RETENTION_DAYS` | `90` | Trap hits (alerts) older than this are deleted at startup, at most 5000 rows per start. Traps are never deleted. |
+| `TRUSTED_PROXY_HOPS` | `0` | Number of reverse proxies in front of the app (see below). |
+| `ADMIN_KEY`, `HONEYTOKEN_SECRET` | none | Required secrets (see "Secrets"). |
+| `EIDOLON_ENV` | none | `dev` skips the secret and database checks. Local development only. |
+
+See `backend/.env.example` for the rest (`NTFY_TOPIC`, `GITHUB_TOKEN`, `CORS_ORIGINS`). Error messages
+and logs never contain `DATABASE_URL` or its password.
 
 ## Running tests
 
@@ -94,7 +121,9 @@ Rate limits and trap alerts need the visitor's real IP. On Render, a proxy sits 
 app, so the app has to decide whose word to take. `X-Forwarded-For` can be written by anyone.
 
 - **Start command.** In the Render dashboard set it to:
-  `uvicorn main:app --host 0.0.0.0 --port $PORT --no-proxy-headers`
+  `alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT --no-proxy-headers`
+  `alembic upgrade head` runs first on every deploy so the tables exist (and are up to date) before the
+  server accepts requests; if it fails, the server does not start. Run from the `backend` directory.
   The old command (`--proxy-headers --forwarded-allow-ips=*`) makes uvicorn trust the header from
   any sender and rewrite `request.client.host` itself, using the leftmost entry, which a visitor can
   forge. Until it is changed, the app only sees that spoofable address; the code below cannot fix it,
@@ -122,3 +151,13 @@ python -c "import secrets; print(secrets.token_urlsafe(24))"   # ADMIN_KEY (the 
 
 Set both in the Render dashboard (and in a local `backend/.env`, which is not committed). For local
 development only, `EIDOLON_ENV=dev` skips the check; never set it on Render.
+
+## What survives a redeploy
+
+With `DATABASE_URL` pointing at Neon, **traps and trap hits (alerts) are stored in Postgres and survive
+redeploys, restarts and spin-downs.** Neon pauses an idle database after about 5 minutes, so the first
+request after a quiet period can take a few extra seconds while it wakes up.
+
+Still in memory, so reset on every restart (acceptable here): rate-limit counters, the "one ntfy push
+per trap per 5 minutes" timestamps, and the breach-metadata cache. Stateless things never needed storage:
+honeytoken and admin-session signatures are recomputed from the secrets.

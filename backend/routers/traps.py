@@ -3,7 +3,7 @@ import logging
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -275,6 +275,14 @@ async def verify_key(request: Request) -> None:
     raise HTTPException(status_code=401, detail=_INVALID_KEY_ERROR["detail"])
 
 
+def _naive_utc_iso(ts: datetime) -> str:
+    """The API has always returned UTC times without an offset ("2026-11-07T15:43:23").
+    Postgres hands back aware datetimes and SQLite naive ones; normalise so both look the same."""
+    if ts.tzinfo is not None:
+        ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
+    return ts.isoformat()
+
+
 @router.get("/api/traps/alerts", response_model=list[AlertResponse], dependencies=[Depends(require_admin)])
 async def list_alerts(db: Session = Depends(get_db)) -> list[AlertResponse]:
     rows = (
@@ -302,7 +310,7 @@ async def list_alerts(db: Session = Depends(get_db)) -> list[AlertResponse]:
             email=a.email,
             password_attempted=a.password_attempted,
             password_length=a.password_length,
-            timestamp=a.timestamp.isoformat(),
+            timestamp=_naive_utc_iso(a.timestamp),
             source_type=t.source_type if t else None,
             context=t.context if t else None,
         )

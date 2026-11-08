@@ -1,4 +1,6 @@
+import logging
 import os
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -9,19 +11,40 @@ from slowapi.errors import RateLimitExceeded
 from routers.admin import router as admin_router
 from routers.exposure import limiter, router as exposure_router
 from routers.traps import router as traps_router
+from database import SessionLocal
 from services.client_ip import trusted_proxy_hops
-from services.startup_checks import check_secrets
+from services.retention import delete_old_alerts, retention_days
+from services.startup_checks import check_database, check_secrets
 
 # Local dev: read backend/.env. Variables already set in the real environment (Render) win.
 load_dotenv()
 
 # Fail closed: weak or missing secrets stop the app from starting (see startup_checks.py).
 check_secrets()
+check_database()
 
 # Refuse to start on a bad TRUSTED_PROXY_HOPS instead of failing on every request later.
 trusted_proxy_hops()
 
-app = FastAPI(title="Eidolon API")
+log = logging.getLogger("eidolon")
+
+# A bad RETENTION_DAYS stops startup here instead of surfacing later.
+retention_days()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Once per start, after migrations (the deploy command runs `alembic upgrade head` first).
+    # A database problem here must not keep the API down, so it is reported and startup goes on.
+    try:
+        with SessionLocal() as db:
+            delete_old_alerts(db)
+    except Exception as e:
+        log.warning("retention cleanup skipped: %s", type(e).__name__)  # the type only: messages can name hosts
+    yield
+
+
+app = FastAPI(title="Eidolon API", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
