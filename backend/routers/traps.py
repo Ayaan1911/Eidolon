@@ -115,6 +115,15 @@ async def _record_hit(
     return alert
 
 
+def count_hit(db: Session, trap_id: str) -> None:
+    """Add one to the trap's counter inside the database ("SET trigger_count = trigger_count + 1").
+    Reading the number into Python, adding one and writing it back would lose a count when two hits
+    arrive at once; this way the database does the add, one row lock at a time."""
+    db.query(Trap).filter(Trap.id == trap_id).update(
+        {Trap.trigger_count: Trap.trigger_count + 1}, synchronize_session=False
+    )
+
+
 def _page() -> HTMLResponse:
     html = _TEMPLATE_PATH.read_text(encoding="utf-8") if _TEMPLATE_PATH.exists() else _FALLBACK_HTML
     return HTMLResponse(html)
@@ -133,8 +142,8 @@ async def trigger_trap(trap_id: str, request: Request, db: Session = Depends(get
     # Capped: the header is visitor-controlled and can be arbitrarily long.
     referer = request.headers.get("referer", "")[:_MAX_REFERER] or None
     alert = await _record_hit(db, request, trap_id, referer=referer)
-    trap.trigger_count += 1
-    db.commit()
+    count_hit(db, trap_id)
+    db.commit()  # the hit row and the counter go in together, in one transaction
 
     if should_alert(f"trap:{trap.id}"):
         await send_ntfy_alert(

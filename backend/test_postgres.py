@@ -6,6 +6,7 @@ Run from backend/:  DATABASE_URL=postgresql://user:pass@localhost/db python -m p
 """
 
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -16,6 +17,7 @@ from sqlalchemy.orm import sessionmaker
 
 import main
 from database import Alert, Base, Trap, get_db
+from routers.traps import count_hit
 from services import retention
 
 # Read when the file is imported, before conftest's per-test fixtures clear DATABASE_URL.
@@ -87,3 +89,29 @@ def test_create_a_trap_record_a_hit_read_it_back_and_delete_old_hits(pg_client, 
         assert retention.delete_old_alerts(db) == 1  # only the 400-day-old row
         assert db.query(Alert).count() == 1
         assert db.query(Trap).count() == 1  # the trap itself is kept
+
+
+def test_simultaneous_hits_are_all_counted(pg_client):
+    _, Session = pg_client
+    with Session() as db:
+        db.add(Trap(id="race", name="race"))
+        db.commit()
+
+    threads, per_thread = 16, 10
+    start = threading.Barrier(threads)  # release every thread at once to force overlap
+
+    def hammer():
+        start.wait()
+        for _ in range(per_thread):
+            with Session() as db:  # a separate session per thread, as in production
+                count_hit(db, "race")
+                db.commit()
+
+    workers = [threading.Thread(target=hammer) for _ in range(threads)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
+
+    with Session() as db:
+        assert db.query(Trap).filter(Trap.id == "race").one().trigger_count == threads * per_thread

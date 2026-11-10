@@ -8,7 +8,7 @@ its own empty in-memory database.
 import pytest
 from sqlalchemy import text
 
-from database import Alert
+from database import Alert, Trap
 
 SECRET_PASSWORD = "SuperSecret!Pa55word"
 LOGIN = {"email": "victim@example.com", "password_length": len(SECRET_PASSWORD)}
@@ -93,3 +93,21 @@ def test_alert_stream_exposes_new_fields_to_admin(client, admin_headers):
     assert "password" not in login and SECRET_PASSWORD not in str(rows)
     visit = next(r for r in rows if r["referer"] and "example-search" in r["referer"])
     assert visit["password_attempted"] is None and visit["email"] is None
+
+
+def test_hit_counter_is_incremented_by_the_database(client, session_factory):
+    from sqlalchemy import event
+
+    trap_id = "t1"
+    statements = []
+    engine = session_factory.kw["bind"]
+    event.listen(engine, "before_cursor_execute", lambda c, cur, stmt, *a: statements.append(stmt))
+
+    assert client.get(f"/trap/{trap_id}").status_code == 200
+    assert client.get(f"/trap/{trap_id}").status_code == 200
+
+    updates = [s for s in statements if s.startswith("UPDATE traps")]
+    # The add happens inside the SQL, not in Python: "SET trigger_count=(traps.trigger_count + ?)"
+    assert len(updates) == 2 and all("traps.trigger_count + " in s for s in updates)
+    with session_factory() as db:
+        assert db.query(Trap).one().trigger_count == 2
