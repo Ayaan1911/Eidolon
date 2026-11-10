@@ -10,6 +10,7 @@ from slowapi.errors import RateLimitExceeded
 
 from routers.admin import router as admin_router
 from routers.exposure import limiter, router as exposure_router
+from routers.ready import router as ready_router
 from routers.traps import router as traps_router
 from database import SessionLocal
 from services.client_ip import trusted_proxy_hops
@@ -72,6 +73,7 @@ app.add_middleware(RequestIdMiddleware)
 
 app.include_router(admin_router)
 app.include_router(exposure_router)
+app.include_router(ready_router)
 app.include_router(traps_router)
 
 
