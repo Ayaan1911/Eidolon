@@ -9,6 +9,7 @@ records are stored for real here instead of living only in a request/response
 cycle.
 """
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, MetaData, String, create_engine
@@ -103,7 +104,11 @@ class Alert(Base):
     timestamp = Column(DateTime(timezone=True), default=utc_now, index=True)
 
 
-def get_db():
+@contextmanager
+def session_scope():
+    """One database session, opened, used and closed by the same thread. Handlers call this inside
+    the thread that runs the query (a plain `def` route, or a helper run with run_in_threadpool), so a
+    session is never handed between threads or shared between requests."""
     db = SessionLocal()
     try:
         yield db

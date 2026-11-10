@@ -16,7 +16,8 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
 import main
-from database import Alert, Base, Trap, get_db
+import database
+from database import Alert, Base, Trap
 from routers.traps import count_hit
 from services import retention
 
@@ -36,7 +37,7 @@ def pg_engine(monkeypatch):
 
 
 @pytest.fixture
-def pg_client(pg_engine):
+def pg_client(pg_engine, monkeypatch):
     """The real app, pointed at the Postgres database, with clean tables."""
     Session = sessionmaker(bind=pg_engine)
     with Session() as db:
@@ -44,14 +45,7 @@ def pg_client(pg_engine):
         db.query(Trap).delete()
         db.commit()
 
-    def get_pg_db():
-        db = Session()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    main.app.dependency_overrides[get_db] = get_pg_db
+    monkeypatch.setattr(database, "SessionLocal", Session)
     from fastapi.testclient import TestClient
 
     yield TestClient(main.app), Session
