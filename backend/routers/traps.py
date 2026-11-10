@@ -24,6 +24,7 @@ from services.admin_auth import require_admin
 from services.client_ip import get_client_ip
 from services.geolocation import lookup_ip
 from services.honeytoken import generate_token, is_valid_token
+from services.public_url import public_base_url
 from services.ntfy_alert import send_ntfy_alert
 
 router = APIRouter(tags=["traps"])
@@ -83,7 +84,7 @@ async def create_trap(
     trap_id = uuid.uuid4().hex[:8]
     db.add(Trap(id=trap_id, name=body.name, source_type=body.source_type, context=body.context))
     db.commit()
-    return TrapCreateResponse(id=trap_id, trap_url=f"{request.base_url}trap/{trap_id}")
+    return TrapCreateResponse(id=trap_id, trap_url=f"{public_base_url(request)}/trap/{trap_id}")
 
 
 async def _record_hit(
@@ -190,7 +191,7 @@ async def deploy_trap_for_finding(
     rescan, or a second click) returns the existing trap instead of a duplicate."""
     existing = db.query(Trap).filter(Trap.finding_id == finding_id).first()
     if existing:
-        return TrapCreateResponse(id=existing.id, trap_url=f"{request.base_url}trap/{existing.id}")
+        return TrapCreateResponse(id=existing.id, trap_url=f"{public_base_url(request)}/trap/{existing.id}")
 
     trap_id = uuid.uuid4().hex[:8]
     db.add(
@@ -203,7 +204,7 @@ async def deploy_trap_for_finding(
         )
     )
     db.commit()
-    return TrapCreateResponse(id=trap_id, trap_url=f"{request.base_url}trap/{trap_id}")
+    return TrapCreateResponse(id=trap_id, trap_url=f"{public_base_url(request)}/trap/{trap_id}")
 
 
 @router.delete("/api/traps/{trap_id}", status_code=204, dependencies=[Depends(require_admin)])
@@ -225,7 +226,7 @@ async def delete_trap(trap_id: str, db: Session = Depends(get_db)) -> Response:
     "/api/traps/honeytoken", response_model=HoneytokenResponse, dependencies=[Depends(require_admin)]
 )
 async def create_honeytoken(request: Request) -> HoneytokenResponse:
-    return HoneytokenResponse(token=generate_token(), base_url=str(request.base_url).rstrip("/"))
+    return HoneytokenResponse(token=generate_token(), base_url=public_base_url(request))
 
 
 @router.post(
@@ -235,7 +236,7 @@ async def create_honeytoken(request: Request) -> HoneytokenResponse:
 )
 async def deploy_decoy(finding_id: str, request: Request) -> HoneytokenResponse:
     return HoneytokenResponse(
-        token=generate_token(finding_id), base_url=str(request.base_url).rstrip("/")
+        token=generate_token(finding_id), base_url=public_base_url(request)
     )
 
 

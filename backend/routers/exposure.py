@@ -19,6 +19,7 @@ from services.client_ip import get_client_ip
 from services.breach_check import BreachCheckError, check_email_exposure
 from services.github_scanner import GitHubScanError, scan_user_repos
 from services.password_strength import check_password_strength
+from services.public_url import public_base_url
 from services.photo_metadata import extract_photo_metadata
 
 router = APIRouter(prefix="/api/exposure", tags=["exposure"])
@@ -81,6 +82,6 @@ async def exposure_repos(
                     trap = traps_by_finding.get(f.id)
                     if trap:
                         f.trap = TrapStatus(
-                            trap_url=f"{request.base_url}trap/{trap.id}", hit_count=trap.trigger_count
+                            trap_url=f"{public_base_url(request)}/trap/{trap.id}", hit_count=trap.trigger_count
                         )
     return result

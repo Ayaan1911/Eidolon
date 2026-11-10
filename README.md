@@ -87,6 +87,7 @@ alembic upgrade head
 |---|---|---|
 | `DATABASE_URL` | none | Postgres connection string (`postgres://` and `postgresql://` both work). Required unless `EIDOLON_ENV=dev`, where the default is the local SQLite file `backend/eidolon.db`. A host other than localhost must have `?sslmode=require`, otherwise the app refuses to start. Use Neon's **direct** (non-pooled) connection string. |
 | `RETENTION_DAYS` | `90` | Trap hits (alerts) older than this are deleted at startup, at most 5000 rows per start. Traps are never deleted. |
+| `PUBLIC_BASE_URL` | none | Optional. Address that trap and decoy links start with, e.g. `https://eidolon-api.example.com` (https required except on localhost; no path or query). If unset, the request's host is used with `https` forced (`http` only for localhost). An invalid value stops startup. |
 | `TRUSTED_PROXY_HOPS` | `0` | Number of reverse proxies in front of the app (see below). |
 | `ADMIN_KEY`, `HONEYTOKEN_SECRET` | none | Required secrets (see "Secrets"). |
 | `EIDOLON_ENV` | none | `dev` skips the secret and database checks. Local development only. |
