@@ -88,12 +88,23 @@ alembic upgrade head
 | `DATABASE_URL` | none | Postgres connection string (`postgres://` and `postgresql://` both work). Required unless `EIDOLON_ENV=dev`, where the default is the local SQLite file `backend/eidolon.db`. A host other than localhost must have `?sslmode=require`, otherwise the app refuses to start. Use Neon's **direct** (non-pooled) connection string. |
 | `RETENTION_DAYS` | `90` | Trap hits (alerts) older than this are deleted at startup, at most 5000 rows per start. Traps are never deleted. |
 | `PUBLIC_BASE_URL` | none | Optional. Address that trap and decoy links start with, e.g. `https://eidolon-api.example.com` (https required except on localhost; no path or query). If unset, the request's host is used with `https` forced (`http` only for localhost). An invalid value stops startup. |
+| `LOG_LEVEL` | `INFO` | Optional. `DEBUG`, `INFO`, `WARNING` or `ERROR`; anything else stops startup. Outside `EIDOLON_ENV=dev` every log line is one JSON object (`timestamp`, `level`, `logger`, `message`, `request_id`, plus extra fields). Visitor IPs are masked in logs (`203.0.113.xxx`); the database keeps the full IP. |
 | `TRUSTED_PROXY_HOPS` | `0` | Number of reverse proxies in front of the app (see below). |
 | `ADMIN_KEY`, `HONEYTOKEN_SECRET` | none | Required secrets (see "Secrets"). |
 | `EIDOLON_ENV` | none | `dev` skips the secret and database checks. Local development only. |
 
 See `backend/.env.example` for the rest (`NTFY_TOPIC`, `GITHUB_TOKEN`, `CORS_ORIGINS`). Error messages
 and logs never contain `DATABASE_URL` or its password.
+
+## Endpoints for probes
+
+| Endpoint | Use it for | What it checks |
+|---|---|---|
+| `GET /health` | "Is the process alive?" (liveness) | Nothing but the process: never touches the database. Returns `{"status": "ok", "commit": ...}`. |
+| `GET /ready` | "Can it serve traffic?" (readiness); set this as Render's Health Check Path | `SELECT 1` on the database (2-second limit) and that the database's Alembic revision equals the newest migration in the repo. `200 {"status": "ready", "commit": ...}`, otherwise `503 {"status": "not_ready", "reason": "database_unreachable" or "migrations_out_of_date"}`. Rate limited to 60/minute per IP. |
+| `GET /` (and `HEAD`) | Probes that just request the root | Always `200` with a short text body; not in the OpenAPI schema. |
+
+Every response carries an `X-Request-ID` header (the client's own if it is letters, digits and hyphens, at most 64 characters; otherwise a generated UUID), and the same id is on every log line of that request.
 
 ## Running tests
 
