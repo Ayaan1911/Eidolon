@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from PIL import UnidentifiedImageError
 from slowapi import Limiter
-from sqlalchemy.orm import Session
 
-from database import Trap, get_db
+from database import Trap, session_scope
 from models.schemas import (
     EmailCheckRequest,
     EmailCheckResponse,
@@ -19,6 +19,7 @@ from services.client_ip import get_client_ip
 from services.breach_check import BreachCheckError, check_email_exposure
 from services.github_scanner import GitHubScanError, scan_user_repos
 from services.password_strength import check_password_strength
+from services.public_url import public_base_url
 from services.photo_metadata import extract_photo_metadata
 
 router = APIRouter(prefix="/api/exposure", tags=["exposure"])
@@ -58,9 +59,7 @@ async def exposure_photo(request: Request, file: UploadFile = File(...)) -> Phot
 # calls against the unauthenticated 60/hour quota, so 10/minute here would exhaust it fast
 @router.post("/repos", response_model=RepoScanResponse)
 @limiter.limit("5/minute")
-async def exposure_repos(
-    request: Request, body: RepoScanRequest, db: Session = Depends(get_db)
-) -> RepoScanResponse:
+async def exposure_repos(request: Request, body: RepoScanRequest) -> RepoScanResponse:
     try:
         result = RepoScanResponse(**await scan_user_repos(body.username))
     except GitHubScanError as e:
@@ -72,15 +71,18 @@ async def exposure_repos(
     if is_admin_request(request):
         finding_ids = [f.id for r in result.results for f in r.findings]
         if finding_ids:
-            traps_by_finding = {
-                t.finding_id: t
-                for t in db.query(Trap).filter(Trap.finding_id.in_(finding_ids)).all()
-            }
+            hits = await run_in_threadpool(_trap_hits_by_finding, finding_ids)
+            base = public_base_url(request)
             for r in result.results:
                 for f in r.findings:
-                    trap = traps_by_finding.get(f.id)
-                    if trap:
-                        f.trap = TrapStatus(
-                            trap_url=f"{request.base_url}trap/{trap.id}", hit_count=trap.trigger_count
-                        )
+                    if f.id in hits:
+                        trap_id, count = hits[f.id]
+                        f.trap = TrapStatus(trap_url=f"{base}/trap/{trap_id}", hit_count=count)
     return result
+
+
+def _trap_hits_by_finding(finding_ids: list[str]) -> dict[str, tuple[str, int]]:
+    """finding id -> (trap id, hit count). Runs in a worker thread with its own session."""
+    with session_scope() as db:
+        traps = db.query(Trap).filter(Trap.finding_id.in_(finding_ids)).all()
+        return {t.finding_id: (t.id, t.trigger_count) for t in traps}

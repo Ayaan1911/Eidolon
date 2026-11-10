@@ -14,7 +14,7 @@ from routers.traps import router as traps_router
 from database import SessionLocal
 from services.client_ip import trusted_proxy_hops
 from services.retention import delete_old_alerts, retention_days
-from services.startup_checks import check_database, check_secrets
+from services.startup_checks import check_database, check_public_base_url, check_secrets
 
 # Local dev: read backend/.env. Variables already set in the real environment (Render) win.
 load_dotenv()
@@ -22,6 +22,7 @@ load_dotenv()
 # Fail closed: weak or missing secrets stop the app from starting (see startup_checks.py).
 check_secrets()
 check_database()
+check_public_base_url()
 
 # Refuse to start on a bad TRUSTED_PROXY_HOPS instead of failing on every request later.
 trusted_proxy_hops()

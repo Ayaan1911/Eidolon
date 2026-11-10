@@ -3,15 +3,15 @@ import logging
 import re
 import time
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 from user_agents import parse
 
-from database import Alert, Trap, get_db
+from database import Alert, Trap, session_scope, utc_iso, utc_now
 from models.schemas import (
     AlertResponse,
     FindingTrapRequest,
@@ -25,6 +25,7 @@ from services.admin_auth import require_admin
 from services.client_ip import get_client_ip
 from services.geolocation import lookup_ip
 from services.honeytoken import generate_token, is_valid_token
+from services.public_url import public_base_url
 from services.ntfy_alert import send_ntfy_alert
 
 router = APIRouter(tags=["traps"])
@@ -78,41 +79,59 @@ def _extract_key(request: Request) -> str | None:
 
 
 @router.post("/api/traps", response_model=TrapCreateResponse, dependencies=[Depends(require_admin)])
-async def create_trap(
-    body: TrapCreateRequest, request: Request, db: Session = Depends(get_db)
-) -> TrapCreateResponse:
+def create_trap(body: TrapCreateRequest, request: Request) -> TrapCreateResponse:
+    # Plain `def`: FastAPI runs it in its thread pool, so the query does not block the event loop.
     trap_id = uuid.uuid4().hex[:8]
-    db.add(Trap(id=trap_id, name=body.name, source_type=body.source_type, context=body.context))
-    db.commit()
-    return TrapCreateResponse(id=trap_id, trap_url=f"{request.base_url}trap/{trap_id}")
+    with session_scope() as db:
+        db.add(Trap(id=trap_id, name=body.name, source_type=body.source_type, context=body.context))
+        db.commit()
+    return TrapCreateResponse(id=trap_id, trap_url=f"{public_base_url(request)}/trap/{trap_id}")
 
 
-async def _record_hit(
-    db: Session, request: Request, trap_id: str, referer: str | None = None, **login_fields
-) -> Alert:
-    """Log one visitor hit with the network/browser context shared by page
-    loads and login submissions. login_fields are set only for the latter."""
+async def _hit_fields(request: Request, referer: str | None = None) -> dict:
+    """The network/browser context shared by page loads and login submissions, as plain column
+    values. It awaits the geolocation lookup, so it must never hold a database session."""
     ip = get_client_ip(request)
     geo = await lookup_ip(ip)
     ua = parse(request.headers.get("user-agent", ""))
+    return {
+        "ip": ip,
+        "location": f"{geo.get('city', 'Unknown')}, {geo.get('country', 'Unknown')}",
+        "latitude": geo.get("lat", 0.0),
+        "longitude": geo.get("lon", 0.0),
+        "isp": geo.get("isp", "Unknown"),
+        "org": geo.get("org") or None,
+        "asn": geo.get("as") or None,
+        "browser": f"{ua.browser.family} {ua.browser.version_string}".strip(),
+        "os": ua.os.family,
+        "device": ua.device.family,
+        "referer": referer,
+    }
 
-    alert = Alert(
-        trap_id=trap_id,
-        ip=ip,
-        location=f"{geo.get('city', 'Unknown')}, {geo.get('country', 'Unknown')}",
-        latitude=geo.get("lat", 0.0),
-        longitude=geo.get("lon", 0.0),
-        isp=geo.get("isp", "Unknown"),
-        org=geo.get("org") or None,
-        asn=geo.get("as") or None,
-        browser=f"{ua.browser.family} {ua.browser.version_string}".strip(),
-        os=ua.os.family,
-        device=ua.device.family,
-        referer=referer,
-        **login_fields,
+
+def _trap_name(trap_id: str) -> str | None:
+    """The trap's name, or None if there is no such trap. Runs in a worker thread."""
+    with session_scope() as db:
+        trap = db.query(Trap).filter(Trap.id == trap_id).first()
+        return trap.name if trap else None
+
+
+def _store_hit(trap_id: str, fields: dict, count: bool) -> None:
+    """Insert the hit and, for a page load, bump the counter: one transaction. Runs in a worker thread."""
+    with session_scope() as db:
+        db.add(Alert(trap_id=trap_id, **fields))
+        if count:
+            count_hit(db, trap_id)
+        db.commit()
+
+
+def count_hit(db: Session, trap_id: str) -> None:
+    """Add one to the trap's counter inside the database ("SET trigger_count = trigger_count + 1").
+    Reading the number into Python, adding one and writing it back would lose a count when two hits
+    arrive at once; this way the database does the add, one row lock at a time."""
+    db.query(Trap).filter(Trap.id == trap_id).update(
+        {Trap.trigger_count: Trap.trigger_count + 1}, synchronize_session=False
     )
-    db.add(alert)
-    return alert
 
 
 def _page() -> HTMLResponse:
@@ -122,30 +141,31 @@ def _page() -> HTMLResponse:
 
 @router.get("/trap/{trap_id}", response_class=HTMLResponse)
 @limiter.limit(TRAP_PAGE_LIMIT)
-async def trigger_trap(trap_id: str, request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+async def trigger_trap(trap_id: str, request: Request) -> HTMLResponse:
+    # Async because it awaits geolocation and ntfy. Each database step is a small sync helper run
+    # in the thread pool, so a slow query never freezes the event loop.
     # Decide validity first, with no side effects: an id that is not a real trap gets the
     # same page but writes no row, calls no geolocation API and sends no push.
-    trap = db.query(Trap).filter(Trap.id == trap_id).first()
-    if not trap:
+    name = await run_in_threadpool(_trap_name, trap_id)
+    if name is None:
         log.info("trap page requested for an unknown id %r", clean(trap_id))
         return _page()
 
     # Capped: the header is visitor-controlled and can be arbitrarily long.
     referer = request.headers.get("referer", "")[:_MAX_REFERER] or None
-    alert = await _record_hit(db, request, trap_id, referer=referer)
-    trap.trigger_count += 1
-    db.commit()
+    fields = await _hit_fields(request, referer=referer)
+    await run_in_threadpool(_store_hit, trap_id, fields, True)
 
-    if should_alert(f"trap:{trap.id}"):
+    if should_alert(f"trap:{trap_id}"):
         await send_ntfy_alert(
-            f"Trap '{trap.name}' triggered",
+            f"Trap '{name}' triggered",
             {
-                "IP": clean(alert.ip),
-                "Location": clean(alert.location),
-                "ISP": clean(alert.isp),
-                "Browser": clean(alert.browser),
-                "OS": clean(alert.os),
-                "Device": clean(alert.device),
+                "IP": clean(fields["ip"]),
+                "Location": clean(fields["location"]),
+                "ISP": clean(fields["isp"]),
+                "Browser": clean(fields["browser"]),
+                "OS": clean(fields["os"]),
+                "Device": clean(fields["device"]),
             },
         )
     return _page()
@@ -153,28 +173,24 @@ async def trigger_trap(trap_id: str, request: Request, db: Session = Depends(get
 
 @router.post("/trap/{trap_id}/login", status_code=204)
 @limiter.limit(TRAP_LOGIN_LIMIT)
-async def trap_login_attempt(
-    trap_id: str, body: TrapLoginAttempt, request: Request, db: Session = Depends(get_db)
-) -> Response:
+async def trap_login_attempt(trap_id: str, body: TrapLoginAttempt, request: Request) -> Response:
     """Called by the fake login page when its form is submitted. Logged as its
     own hit (a page load already logged the visit), carrying the typed
     email/username as-is and only the password's length. No referrer: the
     browser sends the trap page itself here, and where the visitor really came
     from is already on the page-load hit."""
     # Same rule as the page: only a real trap's id is worth a database row and a lookup.
-    if not db.query(Trap).filter(Trap.id == trap_id).first():
+    if await run_in_threadpool(_trap_name, trap_id) is None:
         log.info("trap login submitted for an unknown id %r", clean(trap_id))
         return Response(status_code=204)
 
-    await _record_hit(
-        db,
-        request,
-        trap_id,
+    fields = await _hit_fields(request)
+    fields.update(
         email=body.email or None,
         password_attempted=body.password_length > 0,
         password_length=body.password_length,
     )
-    db.commit()
+    await run_in_threadpool(_store_hit, trap_id, fields, False)
     return Response(status_code=204)
 
 
@@ -183,41 +199,44 @@ async def trap_login_attempt(
     response_model=TrapCreateResponse,
     dependencies=[Depends(require_admin)],
 )
-async def deploy_trap_for_finding(
-    finding_id: str, body: FindingTrapRequest, request: Request, db: Session = Depends(get_db)
+def deploy_trap_for_finding(
+    finding_id: str, body: FindingTrapRequest, request: Request
 ) -> TrapCreateResponse:
     """Owner-only: turn a repo-scan secret finding into a real trap, named from
     the finding's own context. Idempotent - a finding already trapped (e.g. a
     rescan, or a second click) returns the existing trap instead of a duplicate."""
-    existing = db.query(Trap).filter(Trap.finding_id == finding_id).first()
-    if existing:
-        return TrapCreateResponse(id=existing.id, trap_url=f"{request.base_url}trap/{existing.id}")
+    base = public_base_url(request)
+    with session_scope() as db:
+        existing = db.query(Trap).filter(Trap.finding_id == finding_id).first()
+        if existing:
+            return TrapCreateResponse(id=existing.id, trap_url=f"{base}/trap/{existing.id}")
 
-    trap_id = uuid.uuid4().hex[:8]
-    db.add(
-        Trap(
-            id=trap_id,
-            name=f"Secret canary — {body.type} in {body.repo}/{body.file}",
-            source_type="secret",
-            context=f"{body.repo}:{body.file}",
-            finding_id=finding_id,
+        trap_id = uuid.uuid4().hex[:8]
+        db.add(
+            Trap(
+                id=trap_id,
+                name=f"Secret canary — {body.type} in {body.repo}/{body.file}",
+                source_type="secret",
+                context=f"{body.repo}:{body.file}",
+                finding_id=finding_id,
+            )
         )
-    )
-    db.commit()
-    return TrapCreateResponse(id=trap_id, trap_url=f"{request.base_url}trap/{trap_id}")
+        db.commit()
+    return TrapCreateResponse(id=trap_id, trap_url=f"{base}/trap/{trap_id}")
 
 
 @router.delete("/api/traps/{trap_id}", status_code=204, dependencies=[Depends(require_admin)])
-async def delete_trap(trap_id: str, db: Session = Depends(get_db)) -> Response:
+def delete_trap(trap_id: str) -> Response:
     """Owner-only cleanup for a trap that shouldn't exist (e.g. one created
     from a broken/placeholder finding). Its alert history goes with it -
     there is nothing left worth keeping once the trap itself is gone."""
-    trap = db.query(Trap).filter(Trap.id == trap_id).first()
-    if not trap:
-        raise HTTPException(status_code=404, detail="No such trap")
-    db.query(Alert).filter(Alert.trap_id == trap_id).delete()
-    db.delete(trap)
-    db.commit()
+    with session_scope() as db:
+        trap = db.query(Trap).filter(Trap.id == trap_id).first()
+        if not trap:
+            raise HTTPException(status_code=404, detail="No such trap")
+        db.query(Alert).filter(Alert.trap_id == trap_id).delete()
+        db.delete(trap)
+        db.commit()
     return Response(status_code=204)
 
 
@@ -226,7 +245,7 @@ async def delete_trap(trap_id: str, db: Session = Depends(get_db)) -> Response:
     "/api/traps/honeytoken", response_model=HoneytokenResponse, dependencies=[Depends(require_admin)]
 )
 async def create_honeytoken(request: Request) -> HoneytokenResponse:
-    return HoneytokenResponse(token=generate_token(), base_url=str(request.base_url).rstrip("/"))
+    return HoneytokenResponse(token=generate_token(), base_url=public_base_url(request))
 
 
 @router.post(
@@ -236,7 +255,7 @@ async def create_honeytoken(request: Request) -> HoneytokenResponse:
 )
 async def deploy_decoy(finding_id: str, request: Request) -> HoneytokenResponse:
     return HoneytokenResponse(
-        token=generate_token(finding_id), base_url=str(request.base_url).rstrip("/")
+        token=generate_token(finding_id), base_url=public_base_url(request)
     )
 
 
@@ -265,7 +284,7 @@ async def verify_key(request: Request) -> None:
             await send_ntfy_alert(
                 "Honeytoken triggered",
                 {
-                    "Timestamp": datetime.utcnow().isoformat() + "Z",
+                    "Timestamp": utc_iso(utc_now()),
                     "IP": clean(ip),
                     "Location": clean(f"{geo.get('city', 'Unknown')}, {geo.get('country', 'Unknown')}"),
                     "Endpoint": "/api/internal/verify",
@@ -275,23 +294,20 @@ async def verify_key(request: Request) -> None:
     raise HTTPException(status_code=401, detail=_INVALID_KEY_ERROR["detail"])
 
 
-def _naive_utc_iso(ts: datetime) -> str:
-    """The API has always returned UTC times without an offset ("2026-11-07T15:43:23").
-    Postgres hands back aware datetimes and SQLite naive ones; normalise so both look the same."""
-    if ts.tzinfo is not None:
-        ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
-    return ts.isoformat()
-
-
 @router.get("/api/traps/alerts", response_model=list[AlertResponse], dependencies=[Depends(require_admin)])
-async def list_alerts(db: Session = Depends(get_db)) -> list[AlertResponse]:
-    rows = (
-        db.query(Alert, Trap)
-        .outerjoin(Trap, Alert.trap_id == Trap.id)
-        .order_by(Alert.timestamp.desc())
-        .limit(50)
-        .all()
-    )
+def list_alerts() -> list[AlertResponse]:
+    with session_scope() as db:
+        rows = (
+            db.query(Alert, Trap)
+            .outerjoin(Trap, Alert.trap_id == Trap.id)
+            .order_by(Alert.timestamp.desc())
+            .limit(50)
+            .all()
+        )
+        return _to_responses(rows)  # built while the session is still open
+
+
+def _to_responses(rows) -> list[AlertResponse]:
     return [
         AlertResponse(
             id=a.id,
@@ -310,7 +326,7 @@ async def list_alerts(db: Session = Depends(get_db)) -> list[AlertResponse]:
             email=a.email,
             password_attempted=a.password_attempted,
             password_length=a.password_length,
-            timestamp=_naive_utc_iso(a.timestamp),
+            timestamp=utc_iso(a.timestamp),
             source_type=t.source_type if t else None,
             context=t.context if t else None,
         )

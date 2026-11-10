@@ -8,6 +8,7 @@ variable and its length, never its value.
 import os
 
 from db_config import database_url
+from services.public_url import configured_base_url
 
 MIN_ADMIN_KEY_LENGTH = 12
 MIN_HONEYTOKEN_SECRET_LENGTH = 16
@@ -51,3 +52,8 @@ def check_database() -> None:
     """Raise DatabaseConfigError (message never contains the URL) unless a safe database is configured:
     DATABASE_URL set to Postgres with SSL, or no DATABASE_URL and EIDOLON_ENV=dev."""
     database_url()
+
+
+def check_public_base_url() -> None:
+    """Raise PublicBaseUrlError (message never contains the value) if PUBLIC_BASE_URL is set but invalid."""
+    configured_base_url()

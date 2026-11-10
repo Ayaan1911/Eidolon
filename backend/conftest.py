@@ -5,9 +5,9 @@
 - cleared in-memory rate-limit and breach-metadata state,
 - stubbed geolocation and ntfy (no network),
 - a guard that fails any test making a real outbound network connection, and
-- an app.dependency_overrides that is restored afterwards.
+- database.SessionLocal pointed at that database (restored afterwards).
 
-Test modules must not set os.environ, app.dependency_overrides or module attributes at
+Test modules must not set os.environ or module attributes at
 import time; use these fixtures and the `monkeypatch` fixture instead.
 
 Run from backend/:  python -m pytest
@@ -31,7 +31,8 @@ from sqlalchemy.pool import StaticPool
 os.environ.setdefault("EIDOLON_ENV", "dev")
 
 import main  # noqa: E402
-from database import Trap, get_db
+import database
+from database import Trap
 from routers import exposure, traps
 from services import admin_auth, breach_check
 
@@ -54,7 +55,7 @@ def _env(monkeypatch):
     monkeypatch.setenv("ADMIN_KEY", ADMIN_KEY)
     monkeypatch.setenv("HONEYTOKEN_SECRET", HONEYTOKEN_SECRET)
     # Anything a developer's real backend/.env might have loaded must not leak into tests.
-    for name in ("GITHUB_TOKEN", "NTFY_TOPIC", "RENDER_GIT_COMMIT", "DATABASE_URL", "RETENTION_DAYS", "TRUSTED_PROXY_HOPS"):
+    for name in ("GITHUB_TOKEN", "NTFY_TOPIC", "RENDER_GIT_COMMIT", "DATABASE_URL", "RETENTION_DAYS", "TRUSTED_PROXY_HOPS", "PUBLIC_BASE_URL"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -143,21 +144,9 @@ def session_factory(engine):
 
 
 @pytest.fixture(autouse=True)
-def _override_db(session_factory):
-    """Point the app at this test's fresh database, then restore the overrides."""
-    saved = dict(main.app.dependency_overrides)
-
-    def get_test_db():
-        db = session_factory()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    main.app.dependency_overrides[get_db] = get_test_db
-    yield
-    main.app.dependency_overrides.clear()
-    main.app.dependency_overrides.update(saved)
+def _override_db(monkeypatch, session_factory):
+    """Point the app at this test's fresh database (routes open sessions through database.SessionLocal)."""
+    monkeypatch.setattr(database, "SessionLocal", session_factory)
 
 
 @pytest.fixture
