@@ -7,7 +7,8 @@
 - [x] Pass 2 — test isolation and pinned dependencies (done on `fix/audit-pass-1`: 181 tests, pinned `requirements*.txt`)
 - [x] Pass 3 — CI (done: CI green, PR #1 merged)
 - [x] Pass 4a — trust boundary (done on `pass-4-trust-boundary`: client IP helper, fail-closed secrets, gated mint routes, hardened trap routes)
-- [x] Pass 5 — Postgres on Neon with Alembic (done on `pass-5-postgres-alembic`, pending review; the Postgres CI job has not been seen to run)
+- [x] Pass 5 — Postgres on Neon with Alembic (done and verified in production: traps and hits survive redeploys, ntfy alerts arrive)
+- [x] Pass 5b — five fixes: UTC timestamps, https links, atomic counter, event loop, CI on 3.14 (done on `pass-5b-fixes`, pending review)
 - [ ] Pass 6 — Docker and Compose
 - [ ] Pass 7 — logging and readiness
 - [ ] Pass 8 — Mirror honesty fixes
@@ -338,3 +339,79 @@ It selects ids first and then deletes them because `DELETE ... LIMIT` isn't port
 - The frontend parses the API's offset-less timestamps as local time (`new Date("2026-11-08T12:00:00")`), so the log clock can be off by the viewer's UTC offset.
 - Database errors that reach the logs can name the host and user (the driver includes them); the password is never included.
 - INFO-level logs (the retention count) are not visible until logging is configured (Pass 7).
+
+## Pass 5b revision note — five small fixes
+
+**What changed and why.** Production testing of Pass 5 found five defects; this pass fixes those and nothing else.
+
+1. *Timestamps.* The API sent `2026-11-08T12:00:00` (no offset) and the browser read it as local time, so the clock was off by the viewer's UTC offset (5.5 h in India). One helper, `utc_iso`, now produces `2026-11-08T12:00:00Z` everywhere (alerts list, the honeytoken push).
+2. *https links.* Render's proxy hides the original scheme (`--no-proxy-headers`), so links started with `http://`. One helper, `public_base_url`, uses the optional `PUBLIC_BASE_URL`, else the request host with `https` forced (except localhost).
+3. *Atomic counter.* `trap.trigger_count += 1` became one SQL `UPDATE ... SET trigger_count = trigger_count + 1`, in the same transaction as the hit insert.
+4. *Event loop.* Routes that only touch the database became plain `def` (FastAPI runs them in a thread pool). Routes that also `await` the network (trap page, trap login, repo scan) stay `async` and call small sync database helpers through `run_in_threadpool`. Each helper opens, uses and closes its own session in its own thread.
+5. *CI.* Backend tests run on Python 3.11 and 3.14 (Render runs 3.14), the Postgres job runs on 3.14 and now includes the concurrency test, runners are pinned to `ubuntu-24.04`, and checkout / setup-python / setup-node moved to v7 (Node 24).
+
+### Key concepts
+
+**UTC and timezone-aware timestamps.** UTC is the one clock that is the same everywhere. An *aware* datetime carries its offset; a *naive* one does not say what clock it is on. We store UTC and say so when we send it:
+
+```python
+def utc_iso(ts: datetime) -> str:
+    ts = ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
+    return ts.isoformat().replace("+00:00", "Z")
+```
+
+**Why a missing offset marker is ambiguous.** `2026-11-08T12:00:00` could be noon in London or noon in Mumbai. JavaScript guesses *local time* for it, so a UTC value got shifted by the viewer's offset. With the `Z`, `new Date(ts)` knows it is UTC and `toLocaleTimeString` shows the viewer's own time:
+
+```js
+const d = new Date(ts)               // "…Z" is read as UTC
+d.toLocaleTimeString([], { hour12: false })   // shown in the viewer's time zone
+```
+
+**The original-scheme problem behind a proxy.** Render terminates https and talks plain http to the app, so the app sees `http`. Trusting forwarded headers would fix that but also lets visitors forge them, so instead the scheme is decided by us:
+
+```python
+scheme = "http" if _is_local(request.url.hostname) else "https"
+return f"{scheme}://{request.url.netloc}"
+```
+
+**Read-modify-write races and atomic updates.** `+= 1` reads the number into Python, adds one, and writes it back. Two hits that read `4` at the same moment both write `5`: one hit is lost. Letting the database do the add means each update sees the latest value (the row is locked for the moment it takes):
+
+```python
+db.query(Trap).filter(Trap.id == trap_id).update(
+    {Trap.trigger_count: Trap.trigger_count + 1}, synchronize_session=False)
+```
+
+**Blocking calls on an async server.** An `async def` handler runs on the single event-loop thread. A blocking database call inside it freezes *every* request until it returns (on Neon, a network round trip each). A plain `def` handler is run by FastAPI in a worker thread instead. For handlers that must `await` the network, only the database part goes to a worker:
+
+```python
+name = await run_in_threadpool(_trap_name, trap_id)      # query in a worker thread
+fields = await _hit_fields(request)                      # network call, no session held
+await run_in_threadpool(_store_hit, trap_id, fields, True)
+```
+
+A session is created, used and closed inside one helper (`session_scope()`), so it is never passed between threads or shared between requests. Measured with a 1-second query: `/health` waited 1.03 s before, 0.02 s after.
+
+**Testing against the runtime you deploy.** Tests on 3.11 say nothing about 3.14: dependencies, deprecations and removed APIs differ. CI now runs the version production runs, and the concurrency test runs on real Postgres, because SQLite cannot reproduce the race.
+
+### Likely interview questions
+
+1. *Why send timestamps with a `Z` instead of local time?* — Store and transmit one unambiguous clock (UTC) and convert to local time only where a person reads it. An offset-less string forces the reader to guess.
+2. *What is a lost update and how do you prevent it?* — Two transactions read the same value and both write back a result based on it, so one change disappears. Prevent it with an atomic `UPDATE x = x + 1`, a row lock (`SELECT ... FOR UPDATE`) or optimistic versioning.
+3. *Why not just keep `async def` and call the database directly?* — The driver blocks the one event-loop thread, so every other request stalls during each query. Use plain `def` (thread pool), `run_in_threadpool`, or an async driver.
+
+### Mistakes to avoid
+
+- Patching the date format in each caller instead of the one helper that every response goes through.
+- Trusting `X-Forwarded-Proto` from the client, or building links from `request.base_url` behind a proxy.
+- Testing a race on SQLite: it serializes writes, so the bug never shows. Use Postgres and real threads.
+- Opening a session in the event loop thread (or a dependency) and using it in a worker thread; open it where it is used.
+- Measuring "not blocked" from after the block ended; measure from when the slow query *began*.
+- Changing pins blindly when a new Python version fails: find out which package and why first.
+
+### Left unfixed (found along the way)
+
+- The ip-api geolocation lookup still happens inside the request before the hit is stored (a slow lookup delays the page by up to 5 s). Follow-up: move it to a background task and update the row afterwards.
+- The startup retention cleanup in `main.py` uses a blocking session inside the async lifespan (once per start, so left alone).
+- `exposure_password` and `exposure_photo` are `async def` with CPU work (zxcvbn, Pillow) on the event loop; they touch no database, so they were out of scope.
+- The concurrency test only runs where `DATABASE_URL` is Postgres (the CI Postgres job); it could not be run on this machine, which has no Postgres.
+- `FindingCard` shows a client-side `new Date()` for decoy deploy time; it was already local time and is unchanged.
