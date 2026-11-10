@@ -54,6 +54,14 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def utc_iso(ts: datetime) -> str:
+    """The one place the API turns a datetime into text: ISO 8601 in UTC with a trailing Z.
+    A naive value is what SQLite stores, and every stored time is UTC, so it is labelled as UTC;
+    an aware value is converted to UTC first. The Z is what lets a browser know it is UTC."""
+    ts = ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
+    return ts.isoformat().replace("+00:00", "Z")
+
+
 class Trap(Base):
     __tablename__ = "traps"
 

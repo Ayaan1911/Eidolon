@@ -77,8 +77,8 @@ def test_create_a_trap_record_a_hit_read_it_back_and_delete_old_hits(pg_client, 
 
     rows = client.get("/api/traps/alerts", headers=admin_headers).json()
     assert [r["trap_id"] for r in rows] == [trap_id]
-    # The API format is unchanged: UTC with no offset, e.g. 2026-11-08T12:00:00.123456
-    assert datetime.fromisoformat(rows[0]["timestamp"]).tzinfo is None
+    # UTC with an explicit marker, e.g. 2026-11-08T12:00:00.123456Z
+    assert rows[0]["timestamp"].endswith("Z")
 
     with Session() as db:
         assert db.query(Trap).filter(Trap.id == trap_id).one().trigger_count == 1

@@ -3,7 +3,6 @@ import logging
 import re
 import time
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -11,7 +10,7 @@ from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 from user_agents import parse
 
-from database import Alert, Trap, get_db
+from database import Alert, Trap, get_db, utc_iso, utc_now
 from models.schemas import (
     AlertResponse,
     FindingTrapRequest,
@@ -265,7 +264,7 @@ async def verify_key(request: Request) -> None:
             await send_ntfy_alert(
                 "Honeytoken triggered",
                 {
-                    "Timestamp": datetime.utcnow().isoformat() + "Z",
+                    "Timestamp": utc_iso(utc_now()),
                     "IP": clean(ip),
                     "Location": clean(f"{geo.get('city', 'Unknown')}, {geo.get('country', 'Unknown')}"),
                     "Endpoint": "/api/internal/verify",
@@ -273,14 +272,6 @@ async def verify_key(request: Request) -> None:
             )
 
     raise HTTPException(status_code=401, detail=_INVALID_KEY_ERROR["detail"])
-
-
-def _naive_utc_iso(ts: datetime) -> str:
-    """The API has always returned UTC times without an offset ("2026-11-07T15:43:23").
-    Postgres hands back aware datetimes and SQLite naive ones; normalise so both look the same."""
-    if ts.tzinfo is not None:
-        ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
-    return ts.isoformat()
 
 
 @router.get("/api/traps/alerts", response_model=list[AlertResponse], dependencies=[Depends(require_admin)])
@@ -310,7 +301,7 @@ async def list_alerts(db: Session = Depends(get_db)) -> list[AlertResponse]:
             email=a.email,
             password_attempted=a.password_attempted,
             password_length=a.password_length,
-            timestamp=_naive_utc_iso(a.timestamp),
+            timestamp=utc_iso(a.timestamp),
             source_type=t.source_type if t else None,
             context=t.context if t else None,
         )

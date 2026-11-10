@@ -14,7 +14,8 @@ const DEMO_ALERTS = [
   { id: 1, trap_id: "demo0001", ip: "192.0.2.14", location: "Nowhere, Exampleland", isp: "Example Broadband", org: "Example Networks Ltd", browser: "SampleBrowser", os: "DemoOS", referer: null, email: null, password_attempted: null, password_length: null, timestamp: "2000-01-01T00:01:00Z" },
 ]
 
-// HH:MM:SS, 24h — the log timestamp.
+// HH:MM:SS, 24h — the log timestamp. The API sends UTC with a trailing Z, so new Date() reads it
+// correctly and toLocaleTimeString shows it in the viewer's own time zone.
 function clock(ts) {
   const d = new Date(ts)
   return Number.isNaN(d.getTime()) ? "--:--:--" : d.toLocaleTimeString([], { hour12: false })
