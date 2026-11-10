@@ -8,6 +8,7 @@ variable and its length, never its value.
 import os
 
 from db_config import database_url
+from services.logging_setup import log_level
 from services.public_url import configured_base_url
 
 MIN_ADMIN_KEY_LENGTH = 12
@@ -57,3 +58,8 @@ def check_database() -> None:
 def check_public_base_url() -> None:
     """Raise PublicBaseUrlError (message never contains the value) if PUBLIC_BASE_URL is set but invalid."""
     configured_base_url()
+
+
+def check_log_level() -> None:
+    """Raise LogConfigError (message never contains the value) if LOG_LEVEL is set but not valid."""
+    log_level()

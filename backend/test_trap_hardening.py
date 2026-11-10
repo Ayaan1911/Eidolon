@@ -78,8 +78,10 @@ def test_unknown_trap_login_looks_normal_but_has_no_side_effects(client, pushes,
 def test_unknown_id_is_logged_at_info_with_control_characters_removed(client, caplog):
     caplog.set_level(logging.INFO, logger="eidolon.traps")
     client.get("/trap/bad%0d%0aFORGED%20LOG%20LINE")
-    assert "unknown id" in caplog.text
-    assert "\r" not in caplog.text and "\n" not in caplog.text.strip()  # one single line
+    # Only this logger's lines: with logging now at INFO, the test client's own request log is in caplog too.
+    text = "\n".join(r.getMessage() for r in caplog.records if r.name == "eidolon.traps")
+    assert "unknown id" in text
+    assert "\r" not in text and "\n" not in text  # one single line
 
 
 def test_bad_honeytoken_has_no_side_effects(client, pushes, lookups, caplog):

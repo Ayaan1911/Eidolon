@@ -5,7 +5,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
@@ -24,6 +24,7 @@ from routers.exposure import limiter
 from services.admin_auth import require_admin
 from services.client_ip import get_client_ip
 from services.geolocation import lookup_ip
+from services.logging_setup import mask_ip
 from services.honeytoken import generate_token, is_valid_token
 from services.public_url import public_base_url
 from services.ntfy_alert import send_ntfy_alert
@@ -88,24 +89,29 @@ def create_trap(body: TrapCreateRequest, request: Request) -> TrapCreateResponse
     return TrapCreateResponse(id=trap_id, trap_url=f"{public_base_url(request)}/trap/{trap_id}")
 
 
-async def _hit_fields(request: Request, referer: str | None = None) -> dict:
-    """The network/browser context shared by page loads and login submissions, as plain column
-    values. It awaits the geolocation lookup, so it must never hold a database session."""
-    ip = get_client_ip(request)
-    geo = await lookup_ip(ip)
+def _visitor_fields(request: Request, referer: str | None = None) -> dict:
+    """What we know at once about a visitor, as column values. The geolocation columns start as the
+    same "Unknown" values a failed lookup gives; _finish_hit fills them in after the response."""
     ua = parse(request.headers.get("user-agent", ""))
     return {
-        "ip": ip,
+        "ip": get_client_ip(request),
+        **_geo_columns({}),
+        "browser": f"{ua.browser.family} {ua.browser.version_string}".strip(),
+        "os": ua.os.family,
+        "device": ua.device.family,
+        "referer": referer,
+    }
+
+
+def _geo_columns(geo: dict) -> dict:
+    """The alert columns that come from the ip-api answer ({} = lookup failed)."""
+    return {
         "location": f"{geo.get('city', 'Unknown')}, {geo.get('country', 'Unknown')}",
         "latitude": geo.get("lat", 0.0),
         "longitude": geo.get("lon", 0.0),
         "isp": geo.get("isp", "Unknown"),
         "org": geo.get("org") or None,
         "asn": geo.get("as") or None,
-        "browser": f"{ua.browser.family} {ua.browser.version_string}".strip(),
-        "os": ua.os.family,
-        "device": ua.device.family,
-        "referer": referer,
     }
 
 
@@ -116,13 +122,54 @@ def _trap_name(trap_id: str) -> str | None:
         return trap.name if trap else None
 
 
-def _store_hit(trap_id: str, fields: dict, count: bool) -> None:
-    """Insert the hit and, for a page load, bump the counter: one transaction. Runs in a worker thread."""
+def _store_hit(trap_id: str, fields: dict, count: bool) -> int:
+    """Insert the hit and, for a page load, bump the counter: one transaction. Returns the new hit's id.
+    Runs in a worker thread."""
     with session_scope() as db:
-        db.add(Alert(trap_id=trap_id, **fields))
+        alert = Alert(trap_id=trap_id, **fields)
+        db.add(alert)
+        db.flush()  # assigns alert.id without ending the transaction
+        hit_id = alert.id
         if count:
             count_hit(db, trap_id)
         db.commit()
+        return hit_id
+
+
+def _update_geo(hit_id: int, geo: dict) -> None:
+    """Fill in a stored hit's location columns. Opens its own session: the request's is long gone."""
+    with session_scope() as db:
+        db.query(Alert).filter(Alert.id == hit_id).update(_geo_columns(geo), synchronize_session=False)
+        db.commit()
+
+
+async def _finish_hit(hit_id: int, ip: str, push: tuple[str, dict] | None) -> None:
+    """Runs after the response has been sent: look the IP up, store the location, send the push.
+    Must never raise (nobody is left to catch it), so every step is wrapped and logged by class name only.
+    Not guaranteed to run: if the server stops right after the response, the hit is stored but stays
+    "Unknown" and no push goes out."""
+    masked = mask_ip(ip)
+    geo: dict = {}
+    try:
+        geo = await lookup_ip(ip)
+        if geo:
+            await run_in_threadpool(_update_geo, hit_id, geo)
+        else:
+            log.info("geolocation unavailable for hit from %s", masked)
+    except Exception as e:
+        geo = {}
+        log.warning("geolocation step failed for hit from %s: %s", masked, type(e).__name__)
+
+    if push is None:
+        return
+    title, fields = push
+    if geo:  # without a location the push simply leaves these two lines out
+        columns = _geo_columns(geo)
+        fields = {**fields, "Location": clean(columns["location"]), "ISP": clean(columns["isp"])}
+    try:
+        await send_ntfy_alert(title, fields)
+    except Exception as e:
+        log.warning("push step failed: %s", type(e).__name__)
 
 
 def count_hit(db: Session, trap_id: str) -> None:
@@ -141,8 +188,9 @@ def _page() -> HTMLResponse:
 
 @router.get("/trap/{trap_id}", response_class=HTMLResponse)
 @limiter.limit(TRAP_PAGE_LIMIT)
-async def trigger_trap(trap_id: str, request: Request) -> HTMLResponse:
-    # Async because it awaits geolocation and ntfy. Each database step is a small sync helper run
+async def trigger_trap(trap_id: str, request: Request, background: BackgroundTasks) -> HTMLResponse:
+    # Order: validate -> store the hit and count it -> claim the push slot -> answer the visitor ->
+    # (in the background) geolocate, update the hit, push. Every database step is a sync helper run
     # in the thread pool, so a slow query never freezes the event loop.
     # Decide validity first, with no side effects: an id that is not a real trap gets the
     # same page but writes no row, calls no geolocation API and sends no push.
@@ -153,27 +201,32 @@ async def trigger_trap(trap_id: str, request: Request) -> HTMLResponse:
 
     # Capped: the header is visitor-controlled and can be arbitrarily long.
     referer = request.headers.get("referer", "")[:_MAX_REFERER] or None
-    fields = await _hit_fields(request, referer=referer)
-    await run_in_threadpool(_store_hit, trap_id, fields, True)
+    fields = _visitor_fields(request, referer=referer)
+    hit_id = await run_in_threadpool(_store_hit, trap_id, fields, True)
+    log.info("trap hit recorded", extra={"trap_id": clean(trap_id), "visitor": mask_ip(fields["ip"])})
 
+    # Claimed here, before the response, not in the background: two hits arriving together must not
+    # both find the slot free. (Claiming has no side effect beyond marking the slot taken.)
+    push = None
     if should_alert(f"trap:{trap_id}"):
-        await send_ntfy_alert(
+        push = (
             f"Trap '{name}' triggered",
             {
                 "IP": clean(fields["ip"]),
-                "Location": clean(fields["location"]),
-                "ISP": clean(fields["isp"]),
                 "Browser": clean(fields["browser"]),
                 "OS": clean(fields["os"]),
                 "Device": clean(fields["device"]),
             },
         )
+    background.add_task(_finish_hit, hit_id, fields["ip"], push)
     return _page()
 
 
 @router.post("/trap/{trap_id}/login", status_code=204)
 @limiter.limit(TRAP_LOGIN_LIMIT)
-async def trap_login_attempt(trap_id: str, body: TrapLoginAttempt, request: Request) -> Response:
+async def trap_login_attempt(
+    trap_id: str, body: TrapLoginAttempt, request: Request, background: BackgroundTasks
+) -> Response:
     """Called by the fake login page when its form is submitted. Logged as its
     own hit (a page load already logged the visit), carrying the typed
     email/username as-is and only the password's length. No referrer: the
@@ -184,13 +237,15 @@ async def trap_login_attempt(trap_id: str, body: TrapLoginAttempt, request: Requ
         log.info("trap login submitted for an unknown id %r", clean(trap_id))
         return Response(status_code=204)
 
-    fields = await _hit_fields(request)
+    fields = _visitor_fields(request)
     fields.update(
         email=body.email or None,
         password_attempted=body.password_length > 0,
         password_length=body.password_length,
     )
-    await run_in_threadpool(_store_hit, trap_id, fields, False)
+    hit_id = await run_in_threadpool(_store_hit, trap_id, fields, False)
+    log.info("trap login hit recorded", extra={"trap_id": clean(trap_id), "visitor": mask_ip(fields["ip"])})
+    background.add_task(_finish_hit, hit_id, fields["ip"], None)  # logins never push
     return Response(status_code=204)
 
 

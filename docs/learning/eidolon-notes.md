@@ -8,9 +8,9 @@
 - [x] Pass 3 — CI (done: CI green, PR #1 merged)
 - [x] Pass 4a — trust boundary (done on `pass-4-trust-boundary`: client IP helper, fail-closed secrets, gated mint routes, hardened trap routes)
 - [x] Pass 5 — Postgres on Neon with Alembic (done and verified in production: traps and hits survive redeploys, ntfy alerts arrive)
-- [x] Pass 5b — five fixes: UTC timestamps, https links, atomic counter, event loop, CI on 3.14 (done on `pass-5b-fixes`, pending review)
+- [x] Pass 5b — five fixes: UTC timestamps, https links, atomic counter, event loop, CI on 3.14 (done and verified in production)
 - [ ] Pass 6 — Docker and Compose
-- [ ] Pass 7 — logging and readiness
+- [x] Pass 7 — logging, readiness and background geolocation (done on `pass-7-logging-readiness`, pending review)
 - [ ] Pass 8 — Mirror honesty fixes
 - [ ] Pass 9 — README and threat model
 - [ ] Pass 10 — differentiator
@@ -415,3 +415,71 @@ A session is created, used and closed inside one helper (`session_scope()`), so 
 - `exposure_password` and `exposure_photo` are `async def` with CPU work (zxcvbn, Pillow) on the event loop; they touch no database, so they were out of scope.
 - The concurrency test only runs where `DATABASE_URL` is Postgres (the CI Postgres job); it could not be run on this machine, which has no Postgres.
 - `FindingCard` shows a client-side `new Date()` for decoy deploy time; it was already local time and is unchanged.
+
+## Pass 7 revision note — logging, readiness, background geolocation
+
+**What changed and why.**
+1. *Logging.* `print()` is gone and logging is configured once at startup (`services/logging_setup.py`). Outside dev every line is one JSON object; every request gets an id; IPs are masked and secrets redacted. Before, INFO messages (retention count, unknown trap ids) were silently dropped.
+2. *Readiness.* `/health` still only says the process is alive. `/ready` also checks the database and that its migration version equals the repo's newest migration, so Render can stop sending traffic to an instance that cannot work. `/` answers probes instead of 404.
+3. *Latency.* The trap page used to wait for the ip-api lookup (up to 5 s). Now it stores the hit, answers the visitor, and a background task does the lookup, fills in the location and sends the push. Measured with a 2-second lookup: the page answered after 2.034 s before, 0.031 s after.
+
+### Key concepts
+
+**Structured JSON logging.** A printed sentence can only be searched as text; a JSON line has named fields, so a log viewer can filter `level=WARNING` or `request_id=...` exactly:
+
+```python
+entry = {"timestamp": ..., "level": record.levelname, "logger": record.name,
+         "message": record.getMessage(), "request_id": getattr(record, "request_id", "-")}
+return json.dumps(entry, default=str)
+```
+
+**Request correlation ids.** Many requests interleave in one log. An id stored in a `ContextVar` (a value that follows the current request, even into worker threads) is stamped on every line, so one request's lines can be pulled out together. A client may suggest an id, but only a strict pattern is echoed back, so a hostile header cannot inject line breaks into our logs or responses:
+
+```python
+REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9-]{1,64}")
+return incoming if incoming and REQUEST_ID_PATTERN.fullmatch(incoming) else str(uuid.uuid4())
+```
+
+**Never log secrets or full IPs.** Logs are copied to other systems and read by more people than the database. So the code masks IPs (`203.0.113.xxx`), logs exception *class names* only (driver errors can contain hosts and URLs), and `RedactFilter` blanks database URLs, bearer tokens and our configured secrets as a last line of defense. A filter is a safety net, not a licence to log secrets.
+
+**Liveness versus readiness.** Liveness ("is the process running?") should never fail because a dependency is down, or a database outage would make the platform restart healthy servers over and over. Readiness ("can it do its job right now?") is allowed to fail:
+
+```python
+@app.get("/health")          # liveness: no database
+async def health(): return {"status": "ok", ...}
+@router.get("/ready")        # readiness: database + migration version
+```
+
+**Health checks that touch a database, and their risks.** Every probe costs a query (and wakes a suspended Neon database); if the check is slow it can pile up; if it is open to the world it is a free way to hammer the database, hence the 2-second limit and the rate limit; and its answers must be generic (`database_unreachable`), never an error message that leaks a host or user. On Render, a failing check means the instance is taken out of rotation and, if it stays failing, restarted.
+
+**Slow work after the response, and what it cannot guarantee.** `BackgroundTasks` run after the response is sent, so the visitor does not wait. But nobody is left to receive an error, so the task must catch everything and log it; and if the server stops right after the response, the task may never run (the hit stays stored as "Unknown" and no push goes out). That trade is fine for a location lookup; it would not be for something that must happen.
+
+```python
+hit_id = await run_in_threadpool(_store_hit, trap_id, fields, True)   # stored first
+background.add_task(_finish_hit, hit_id, fields["ip"], push)          # lookup + update + push, later
+return _page()
+```
+
+**Why the dedupe slot is claimed before the response.** `should_alert(...)` both checks and marks the 5-minute slot. If it ran in the background, two hits arriving together could both see the slot free before either marked it, and both would push. Claiming it in the request, one hit at a time on the event loop, makes only one hit the "pusher"; the background task just carries out what was already decided.
+
+### Likely interview questions
+
+1. *What is the difference between a liveness and a readiness probe?* — Liveness asks whether the process should be restarted; readiness asks whether it should receive traffic. Liveness must not depend on other services; readiness should.
+2. *Why return only a generic reason from a public readiness endpoint?* — Error text from a database driver can include hostnames, usernames or URLs. A public endpoint should say what is wrong in a word ("database_unreachable") and leave the detail to access-controlled logs.
+3. *What can go wrong with a background task after the response?* — It may never run (the process stops), its errors have nowhere to go unless it catches and logs them, and it must not reuse the request's database session, which is closed by then.
+
+### Mistakes to avoid
+
+- Logging an exception message or `repr(request)` "just for debugging": driver and HTTP errors carry URLs, hosts and tokens. Log the class name.
+- Putting a database call in `/health`: one database outage then makes the platform restart healthy servers.
+- Trusting a client-supplied request id without validating it (header and log injection).
+- Doing a check-then-mark (the dedupe slot) in a task that runs later, where two requests can both pass the check.
+- Writing a test for "the page answers fast" with `TestClient`: it waits for background tasks, so it measures nothing. Use raw ASGI calls and watch the moment the response is sent.
+- Assuming pytest leaves logging alone: a fixture that configures logging is undone by pytest's own handling; configure inside the test body.
+
+### Left unfixed (found along the way)
+
+- The honeytoken endpoint (`/api/internal/verify`) still does its geolocation lookup inside the request. Its response must look like a plain auth failure, so it could use the same background pattern.
+- `/ready` uses the app's own connection pool; on a free Neon database each probe can wake a suspended database (that is the point of the check, but it costs compute hours).
+- The in-memory 5-minute dedupe resets on restart (unchanged, documented since Pass 4a).
+- Alembic's own command-line output uses its own logging setup, not the JSON one; it only runs at deploy time.
