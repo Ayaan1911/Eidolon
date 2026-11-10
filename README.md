@@ -113,7 +113,7 @@ a fresh in-memory database per test, and stubs for external services. The same c
 GitHub Actions on every push and pull request.
 
 Python: the repo does not pin a version (Render's is set in its dashboard). The pinned
-versions were tested on Python 3.11, which CI also uses.
+versions are tested in CI on Python 3.11 and 3.14 (Render runs 3.14).
 
 
 ## Deploying: the client IP behind a proxy

@@ -9,20 +9,21 @@ permissions:
 
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    strategy:
+      # 3.11 is what the pinned requirements were first tested on; 3.14 is what Render runs.
+      matrix:
+        python-version: ["3.11", "3.14"]
     env:
       EIDOLON_ENV: dev
     defaults:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      # ponytail: no Python version is pinned in this repo (Render's is set in its dashboard,
-      # which I cannot see). 3.11 is the version the pinned requirements were tested on and
-      # the one the README names. If Render runs something else, change it here and in the README.
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
           # requirements-dev.txt only *includes* requirements.txt, so hash both files.
           cache-dependency-path: |
@@ -44,7 +45,7 @@ jobs:
   postgres:
     # The same migrations and a smoke test against a real Postgres (production's database),
     # because SQLite hides differences (timestamps with time zone, real concurrency, constraints).
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:17
@@ -66,10 +67,10 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.14"  # must match what Render runs
           cache: pip
           cache-dependency-path: |
             backend/requirements.txt
@@ -79,17 +80,18 @@ jobs:
       - run: alembic upgrade head
       - run: alembic downgrade base
       - run: alembic upgrade head
-      # Migration drift (models vs the migrated database) and the create/hit/read/retention smoke test.
+      # Migration drift (models vs the migrated database), the create/hit/read/retention smoke test,
+      # and the concurrency test (16 threads incrementing one trap's counter must add up exactly).
       - run: python -m pytest test_postgres.py -v
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
