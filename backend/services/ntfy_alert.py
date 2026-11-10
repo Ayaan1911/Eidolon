@@ -1,8 +1,11 @@
+import logging
 import os
 
 import httpx
 
 NTFY_BASE = "https://ntfy.sh"
+
+log = logging.getLogger("eidolon.ntfy")
 
 
 async def send_ntfy_alert(title: str, fields: dict[str, str]) -> None:
@@ -13,7 +16,7 @@ async def send_ntfy_alert(title: str, fields: dict[str, str]) -> None:
     """
     topic = os.environ.get("NTFY_TOPIC")
     if not topic:
-        print(f"[trap] NTFY_TOPIC not set - skipping ntfy alert for '{title}'")
+        log.warning("NTFY_TOPIC not set - skipping ntfy alert")
         return
 
     body = "\n".join(f"{k}: {v}" for k, v in fields.items())
@@ -28,4 +31,5 @@ async def send_ntfy_alert(title: str, fields: dict[str, str]) -> None:
             )
             resp.raise_for_status()
     except httpx.HTTPError as e:
-        print(f"[trap] ntfy alert failed to send: {e}")
+        # The class name only: the error text contains the request URL, and the URL contains the topic.
+        log.warning("ntfy alert failed to send: %s", type(e).__name__)

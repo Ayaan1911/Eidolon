@@ -13,11 +13,16 @@ from routers.exposure import limiter, router as exposure_router
 from routers.traps import router as traps_router
 from database import SessionLocal
 from services.client_ip import trusted_proxy_hops
+from services.logging_setup import RequestIdMiddleware, configure_logging
 from services.retention import delete_old_alerts, retention_days
-from services.startup_checks import check_database, check_public_base_url, check_secrets
+from services.startup_checks import check_database, check_log_level, check_public_base_url, check_secrets
 
 # Local dev: read backend/.env. Variables already set in the real environment (Render) win.
 load_dotenv()
+
+# Logging first, so everything after this (including a startup refusal) is logged the same way.
+check_log_level()
+configure_logging()
 
 # Fail closed: weak or missing secrets stop the app from starting (see startup_checks.py).
 check_secrets()
@@ -37,6 +42,7 @@ retention_days()
 async def lifespan(app: FastAPI):
     # Once per start, after migrations (the deploy command runs `alembic upgrade head` first).
     # A database problem here must not keep the API down, so it is reported and startup goes on.
+    log.info("eidolon starting (commit %s)", os.environ.get("RENDER_GIT_COMMIT", "unknown")[:7])
     try:
         with SessionLocal() as db:
             delete_old_alerts(db)
@@ -60,6 +66,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Added last, so it is the outermost layer: every response (even a CORS one) carries X-Request-ID.
+app.add_middleware(RequestIdMiddleware)
 
 app.include_router(admin_router)
 app.include_router(exposure_router)
