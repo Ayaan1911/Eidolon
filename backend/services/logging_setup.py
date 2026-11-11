@@ -158,6 +158,9 @@ def configure_logging() -> None:
             },
             "root": {"handlers": ["console"], "level": level},
             "loggers": {
+                # httpx logs "GET <full url>" at INFO; our URLs carry an email or the ntfy topic.
+                "httpx": {"level": "WARNING"},
+                "httpcore": {"level": "WARNING"},
                 "uvicorn": uvicorn_logger,
                 "uvicorn.error": uvicorn_logger,
                 "uvicorn.access": {**uvicorn_logger, "filters": ["mask_access_ip"]},

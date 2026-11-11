@@ -34,6 +34,9 @@ _BINARY_EXTENSIONS = {
 }
 
 
+PUBLIC_ERROR = "The GitHub scan is unavailable right now. Try again later."
+
+
 class GitHubScanError(Exception):
     def __init__(self, message: str, status_code: int = 502):
         super().__init__(message)
@@ -57,16 +60,10 @@ def _headers() -> dict[str, str]:
 
 
 def _rate_limit_reason(mid_scan: bool) -> str:
+    # Public text: it must not reveal whether the server has a token. The admin
+    # diagnostic (/api/admin/github-token) is where the token's state is shown.
     where = "mid-scan; results are partial" if mid_scan else "before any repos could be scanned"
-    if os.environ.get("GITHUB_TOKEN"):
-        return (
-            f"GitHub API rate limit reached {where}, despite an authenticated GITHUB_TOKEN "
-            "(5,000/hour) - GitHub's API load may be unusually high right now"
-        )
-    return (
-        f"GitHub API rate limit reached {where} - no GITHUB_TOKEN is configured, "
-        "so this account is capped at 60 requests/hour"
-    )
+    return f"GitHub's rate limit was reached {where}. Try again later."
 
 
 def _is_rate_limited(resp: httpx.Response) -> bool:
@@ -116,14 +113,16 @@ async def _list_repos(client: httpx.AsyncClient, username: str) -> tuple[list[di
             params={"sort": "updated", "direction": "desc", "per_page": 30},
             headers=_headers(),
         )
-    except httpx.HTTPError as e:
-        raise GitHubScanError(f"Could not reach GitHub API: {e}") from e
+    except httpx.HTTPError:
+        raise GitHubScanError(PUBLIC_ERROR) from None
 
     if _is_rate_limited(resp):
         return [], True
     if resp.status_code == 404:
-        raise GitHubScanError(f"GitHub user '{username}' not found", status_code=404)
-    resp.raise_for_status()
+        raise GitHubScanError("GitHub user not found", status_code=404)
+    if resp.status_code != 200:
+        # Includes 401/403 (our token expired or revoked): the visitor gets the same public text.
+        raise GitHubScanError(PUBLIC_ERROR)
 
     repos = [r for r in resp.json() if not r.get("fork")]
     return repos[:MAX_REPOS], False

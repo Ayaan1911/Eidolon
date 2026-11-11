@@ -7,6 +7,7 @@ No real GitHub calls - httpx.MockTransport stands in for the network.
 import asyncio
 
 import httpx
+import pytest
 
 from services import github_scanner
 from services.github_scanner import _headers, _rate_limit_reason, scan_user_repos
@@ -28,17 +29,12 @@ def test_token_sends_classic_scheme_not_bearer(monkeypatch):
     assert _headers()["Authorization"] == "token ghp_examplenotarealtoken"
 
 
-def test_rate_limit_reason_says_unconfigured_when_no_token():
-    reason = _rate_limit_reason(mid_scan=False)
-    assert "no github_token is configured" in reason.lower()
-    assert "60 requests/hour" in reason
-
-
-def test_rate_limit_reason_says_authenticated_when_token_present(monkeypatch):
+def test_rate_limit_reason_is_generic_with_or_without_a_token(monkeypatch):
+    without = _rate_limit_reason(mid_scan=False)
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_examplenotarealtoken")
-    reason = _rate_limit_reason(mid_scan=True)
-    assert "despite an authenticated github_token" in reason.lower()
-    assert "no github_token" not in reason.lower()
+    with_token = _rate_limit_reason(mid_scan=False)
+    assert without == with_token  # nothing public tells the two setups apart
+    assert "token" not in with_token.lower()
 
 
 def _rate_limited_transport(request: httpx.Request) -> httpx.Response:
@@ -51,7 +47,7 @@ def test_scan_reports_unconfigured_token_when_rate_limited(monkeypatch):
 
     assert result["incomplete"] is True
     assert result["repos_scanned"] == 0
-    assert "no github_token is configured" in result["incomplete_reason"].lower()
+    assert "rate limit" in result["incomplete_reason"].lower()
 
 
 def test_scan_reports_authenticated_rate_limit_when_token_set(monkeypatch):
@@ -60,7 +56,7 @@ def test_scan_reports_authenticated_rate_limit_when_token_set(monkeypatch):
     result = asyncio.run(scan_user_repos("octocat"))
 
     assert result["incomplete"] is True
-    assert "despite an authenticated github_token" in result["incomplete_reason"].lower()
+    assert "token" not in result["incomplete_reason"].lower()
 
 
 def test_raw_content_fetch_never_carries_the_github_token(monkeypatch):
@@ -118,3 +114,27 @@ def test_lookalike_names_are_still_scanned():
     ):
         assert _is_candidate(path, 100), path
 
+
+
+def _boom(request):
+    raise httpx.ConnectError("no route to api.github.com/users/octocat")
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [lambda r: httpx.Response(401, json={"message": "Bad credentials"}), lambda r: httpx.Response(500, text="boom"), _boom],
+    ids=["token-rejected", "server-error", "network"],
+)
+def test_github_errors_are_generic(monkeypatch, handler):
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_examplenotarealtoken")
+    _mock_github(monkeypatch, handler)
+    with pytest.raises(github_scanner.GitHubScanError) as e:
+        asyncio.run(scan_user_repos("octocat"))
+    assert str(e.value) == github_scanner.PUBLIC_ERROR
+
+
+def test_unknown_user_message_does_not_echo_the_name(monkeypatch):
+    _mock_github(monkeypatch, lambda r: httpx.Response(404, json={}))
+    with pytest.raises(github_scanner.GitHubScanError) as e:
+        asyncio.run(scan_user_repos("octocat"))
+    assert e.value.status_code == 404 and "octocat" not in str(e.value)
