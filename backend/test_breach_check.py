@@ -64,13 +64,13 @@ def test_breached_email_is_reported_with_details(client, monkeypatch):
     assert (leaky["name"], leaky["date"], leaky["severity"]) == ("LeakyForum", "2019-03-01", "High")
     assert leaky["data_exposed"] == ["Emails", "Passwords"]
     assert (quiet["name"], quiet["severity"]) == ("QuietShop", "Medium")
-    assert body["risk_score"] > 0
+    assert "risk_score" not in body and "score" not in body  # narrative findings only, never a number
 
 
 def test_clean_email_is_reported_as_clean(client, monkeypatch):
     mock_xposed(monkeypatch, api(status=404))  # the API answers 404 for "not found in any breach"
     body = client.post("/api/exposure/email", json={"email": "fresh@example.com"}).json()
-    assert (body["total_breaches"], body["breaches"], body["risk_score"]) == (0, [], 0)
+    assert (body["total_breaches"], body["breaches"]) == (0, [])
 
 
 def test_breach_missing_from_metadata_is_still_listed_with_defaults(client, monkeypatch):

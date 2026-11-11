@@ -43,15 +43,6 @@ def _severity(meta: dict, exposed: list[str]) -> str:
     return "Medium"
 
 
-def _risk_score(breaches: list[BreachData]) -> int:
-    if not breaches:
-        return 0
-    score = min(100, 20 + len(breaches) * 15)
-    if any(b.severity == "High" for b in breaches):
-        score = max(score, 85)
-    return score
-
-
 async def check_email_exposure(email: str) -> EmailCheckResponse:
     async with httpx.AsyncClient() as client:
         try:
@@ -71,7 +62,6 @@ async def check_email_exposure(email: str) -> EmailCheckResponse:
 
     return EmailCheckResponse(
         email=email,
-        risk_score=_risk_score(breaches),
         total_breaches=len(breaches),
         breaches=breaches,
     )

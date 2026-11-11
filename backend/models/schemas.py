@@ -14,7 +14,6 @@ class BreachData(BaseModel):
 
 class EmailCheckResponse(BaseModel):
     email: str
-    risk_score: int
     total_breaches: int
     breaches: list[BreachData]
 
