@@ -3,7 +3,6 @@ uvicorn[standard]==0.54.0
 httpx==0.28.1
 pydantic[email]==2.14.3
 slowapi==0.1.10
-zxcvbn==4.5.0
 Pillow==13.0.0
 python-multipart==0.0.33
 sqlalchemy==2.1.8

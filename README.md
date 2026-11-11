@@ -22,7 +22,7 @@ Eidolon works in two movements.
 
 **The Mirror** shows you your own exposure — the same footprint an attacker would find:
 
-- **Breach & password exposure** — checks an email against known breaches and scores password strength
+- **Breach & password exposure** — checks an email against known breaches and checks a password against known breaches without sending it anywhere
 - **Photo metadata** — pulls EXIF/GPS data out of a photo to show what it leaks about where it was taken
 - **Repo secret scanning** — scans a GitHub user's public repos for committed secrets
 

@@ -7,8 +7,6 @@ from database import Trap, session_scope
 from models.schemas import (
     EmailCheckRequest,
     EmailCheckResponse,
-    PasswordCheckRequest,
-    PasswordCheckResponse,
     PhotoMetadataResponse,
     RepoScanRequest,
     RepoScanResponse,
@@ -18,7 +16,6 @@ from services.admin_auth import is_admin_request
 from services.client_ip import get_client_ip
 from services.breach_check import BreachCheckError, check_email_exposure
 from services.github_scanner import GitHubScanError, scan_user_repos
-from services.password_strength import check_password_strength
 from services.public_url import public_base_url
 from services.photo_metadata import extract_photo_metadata
 
@@ -35,12 +32,6 @@ async def exposure_email(request: Request, body: EmailCheckRequest) -> EmailChec
         return await check_email_exposure(body.email)
     except BreachCheckError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-
-
-@router.post("/password", response_model=PasswordCheckResponse)
-@limiter.limit("10/minute")
-async def exposure_password(request: Request, body: PasswordCheckRequest) -> PasswordCheckResponse:
-    return check_password_strength(body.password)
 
 
 @router.post("/photo", response_model=PhotoMetadataResponse)

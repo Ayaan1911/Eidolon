@@ -99,6 +99,7 @@ jobs:
       - run: npm ci
       # oxlint exits 0 on warnings (the 2 existing only-export-components ones), non-zero on errors.
       - run: npm run lint
+      - run: npm test
       - run: npm run build
         env:
           # Dummy value: only checks that a production build succeeds; nothing is deployed.

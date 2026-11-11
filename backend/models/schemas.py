@@ -18,16 +18,6 @@ class EmailCheckResponse(BaseModel):
     breaches: list[BreachData]
 
 
-class PasswordCheckRequest(BaseModel):
-    password: str
-
-
-class PasswordCheckResponse(BaseModel):
-    score: int
-    feedback: str
-    crack_time_display: str
-
-
 class PhotoMetadataResponse(BaseModel):
     has_location: bool
     latitude: float | None = None

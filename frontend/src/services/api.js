@@ -44,10 +44,6 @@ export function checkEmailExposure(email) {
   return postJson("/api/exposure/email", { email })
 }
 
-export function checkPasswordStrength(password) {
-  return postJson("/api/exposure/password", { password })
-}
-
 export function scanGithubRepos(username) {
   // Sending the admin header (when present) is what lets a finding's response
   // carry trap status - harmless for a logged-out visitor, who has none.
