@@ -189,6 +189,19 @@ def test_a_repo_that_cannot_be_listed_is_counted_not_hidden(monkeypatch):
     assert result["repos_failed"] == 1 and result["incomplete"] is True
 
 
+def test_missing_repo_tree_is_not_reported_as_a_clean_scan(monkeypatch):
+    def handler(request):
+        if request.url.path.endswith("/repos"):
+            return httpx.Response(200, json=[{"name": "r", "owner": {"login": "octocat"}, "fork": False}])
+        return httpx.Response(404)
+
+    _mock_github(monkeypatch, handler)
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["repos_failed"] == 1
+    assert result["repos_scanned"] == 0
+    assert result["incomplete"] is True
+
+
 def test_deadline_returns_partial_results(monkeypatch):
     monkeypatch.setattr(github_scanner, "SCAN_DEADLINE_SECONDS", 0.3)
     _serve(monkeypatch, {"a.txt": "x"}, delay=0.2, repos=3)  # each repo needs 0.4s+

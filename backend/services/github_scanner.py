@@ -144,7 +144,7 @@ async def _get_tree(
     )
     if _is_rate_limited(resp):
         return [], True, False
-    if resp.status_code in (404, 409):  # no such branch, or an empty repository: nothing to scan
+    if resp.status_code == 409:  # an empty repository has nothing to scan
         return [], False, False
     resp.raise_for_status()
     body = resp.json()
