@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom"
+import { Routes, Route, Link } from "react-router-dom"
 import { FindingsProvider } from "./context/FindingsContext"
 import Layout from "./components/Layout"
 import ToolPage from "./components/ToolPage"
@@ -91,6 +91,7 @@ export default function App() {
               </ToolPage>
             }
           />
+          <Route path="*" element={<ToolPage title="Page not found" intro="This page does not exist."><Link to="/" className="text-fg underline">Return home</Link></ToolPage>} />
         </Route>
       </Routes>
     </FindingsProvider>

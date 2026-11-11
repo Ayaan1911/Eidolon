@@ -56,7 +56,7 @@ export default function FindingCard({ finding, sourceLabel, status, isAdmin }) {
   const [findingTrapLoading, setFindingTrapLoading] = useState(false)
   const [findingTrapError, setFindingTrapError] = useState(null)
 
-  const canTrap = finding.type === "breach"
+  const canTrap = finding.type === "breach" && isAdmin
   const canDeployDecoy = finding.type === "secret" && isAdmin
   const canDeployFindingTrap = finding.type === "secret" && isAdmin
 
@@ -110,7 +110,7 @@ export default function FindingCard({ finding, sourceLabel, status, isAdmin }) {
     setDecoyLoading(true)
     setDecoyError(null)
     try {
-      const result = await deployDecoy(finding.id)
+      const result = await deployDecoy(finding.raw.id)
       setDecoy({ ...result, deployedAt: new Date() })
     } catch (err) {
       setDecoyError(err.message)
