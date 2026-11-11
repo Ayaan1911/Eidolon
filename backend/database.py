@@ -12,7 +12,7 @@ cycle.
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, MetaData, String, create_engine
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, MetaData, String, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from db_config import database_url, is_sqlite
@@ -65,6 +65,7 @@ def utc_iso(ts: datetime) -> str:
 
 class Trap(Base):
     __tablename__ = "traps"
+    __table_args__ = (Index("ux_traps_finding_id", "finding_id", unique=True),)
 
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
@@ -75,7 +76,7 @@ class Trap(Base):
     context = Column(String, nullable=True)
     # A stable hash of the finding it was deployed for (repo:file:line:type) - lets a
     # rescan recognize "this finding already has a trap" without a database of findings.
-    finding_id = Column(String, nullable=True, index=True)
+    finding_id = Column(String, nullable=True)
 
 
 class Alert(Base):

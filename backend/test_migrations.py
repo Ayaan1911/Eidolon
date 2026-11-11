@@ -8,7 +8,7 @@ import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 
 from conftest import alembic_config
 from database import Base
@@ -76,3 +76,34 @@ def test_baseline_has_the_indexes_the_code_relies_on(sqlite_url):
     indexed = {(table, tuple(ix["column_names"])) for table in APP_TABLES for ix in inspector.get_indexes(table)}
     engine.dispose()
     assert {("traps", ("finding_id",)), ("alerts", ("trap_id",)), ("alerts", ("timestamp",))} <= indexed
+
+
+def test_duplicate_associations_fail_without_changing_deployed_traps(sqlite_url):
+    config = alembic_config()
+    command.upgrade(config, "0001")
+    engine = create_engine(sqlite_url)
+    with engine.begin() as connection:
+        connection.execute(text("INSERT INTO traps (id, name, finding_id, trigger_count) VALUES ('a', 'first', 'finding', 2), ('b', 'second', 'finding', 3)"))
+        connection.execute(text("INSERT INTO alerts (trap_id) VALUES ('b')"))
+    with pytest.raises(RuntimeError, match="Duplicate finding associations"):
+        command.upgrade(config, "head")
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT id, name, trigger_count FROM traps ORDER BY id")).all() == [('a', 'first', 2), ('b', 'second', 3)]
+        assert connection.execute(text("SELECT trap_id FROM alerts")).scalar_one() == 'b'
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == '0001'
+    engine.dispose()
+
+
+def test_unique_index_and_downgrade_preserve_old_urls(sqlite_url):
+    config = alembic_config()
+    command.upgrade(config, "0001")
+    engine = create_engine(sqlite_url)
+    with engine.begin() as connection:
+        connection.execute(text("INSERT INTO traps (id, name, finding_id) VALUES ('old-url', 'original', 'finding')"))
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        assert next(i for i in inspect(connection).get_indexes('traps') if i['name'] == 'ux_traps_finding_id')['unique']
+    command.downgrade(config, "0001")
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT id, name, finding_id FROM traps")).all() == [('old-url', 'original', 'finding')]
+    engine.dispose()

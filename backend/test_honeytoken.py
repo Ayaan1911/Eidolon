@@ -100,3 +100,16 @@ def test_non_ascii_signature_is_rejected_not_a_crash():
     accent, jp = chr(233), chr(0x65E5) + chr(0x672C)
     assert honeytoken.is_valid_token("eidolon_live_abc." + accent + "0" * 63) is False
     assert honeytoken.is_valid_token("eidolon_live_" + jp + "." + jp) is False
+
+
+def test_verified_decoy_notification_identifies_its_finding(client, alerts):
+    token = honeytoken.generate_token("stable-scan-id")
+    response = client.get("/api/internal/verify", headers={"X-API-Key": token})
+    assert response.status_code == 401
+    assert alerts[0][1]["Finding"] == "stable-scan-id"
+
+
+def test_tampered_finding_link_never_generates_an_alert(client, alerts):
+    token = honeytoken.generate_token("stable-scan-id").replace("stable-scan-id", "forged-finding")
+    assert client.get("/api/internal/verify", headers={"X-API-Key": token}).status_code == 401
+    assert alerts == []
