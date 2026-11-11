@@ -104,7 +104,7 @@ def _visitor_fields(request: Request, referer: str | None = None) -> dict:
 
 
 def _geo_columns(geo: dict) -> dict:
-    """The alert columns that come from the ip-api answer ({} = lookup failed)."""
+    """The alert columns that come from the geolocation answer ({} = lookup failed)."""
     return {
         "location": f"{geo.get('city', 'Unknown')}, {geo.get('country', 'Unknown')}",
         "latitude": geo.get("lat", 0.0),
