@@ -64,13 +64,13 @@ def test_breached_email_is_reported_with_details(client, monkeypatch):
     assert (leaky["name"], leaky["date"], leaky["severity"]) == ("LeakyForum", "2019-03-01", "High")
     assert leaky["data_exposed"] == ["Emails", "Passwords"]
     assert (quiet["name"], quiet["severity"]) == ("QuietShop", "Medium")
-    assert body["risk_score"] > 0
+    assert "risk_score" not in body and "score" not in body  # narrative findings only, never a number
 
 
 def test_clean_email_is_reported_as_clean(client, monkeypatch):
     mock_xposed(monkeypatch, api(status=404))  # the API answers 404 for "not found in any breach"
     body = client.post("/api/exposure/email", json={"email": "fresh@example.com"}).json()
-    assert (body["total_breaches"], body["breaches"], body["risk_score"]) == (0, [], 0)
+    assert (body["total_breaches"], body["breaches"]) == (0, [])
 
 
 def test_breach_missing_from_metadata_is_still_listed_with_defaults(client, monkeypatch):
@@ -89,7 +89,7 @@ def test_upstream_network_failure_returns_a_safe_502(client, monkeypatch, error)
     mock_xposed(monkeypatch, failing(error))
     r = client.post("/api/exposure/email", json={"email": "someone@example.com"})
     assert r.status_code == 502
-    assert r.json()["detail"].startswith("XposedOrNot API request failed")
+    assert r.json()["detail"] == breach_check.PUBLIC_ERROR
 
 
 def test_upstream_server_error_returns_a_safe_502(client, monkeypatch):
@@ -101,3 +101,30 @@ def test_upstream_server_error_returns_a_safe_502(client, monkeypatch):
 def test_invalid_email_is_rejected_before_any_lookup(client, monkeypatch):
     mock_xposed(monkeypatch, failing(AssertionError("no upstream call for an invalid email")))
     assert client.post("/api/exposure/email", json={"email": "not-an-email"}).status_code == 422
+
+
+def test_password_never_goes_to_this_server(client):
+    # The breached-password check runs in the browser (k-anonymity), so no route may accept a password.
+    assert client.post("/api/exposure/password", json={"password": "x"}).status_code in (404, 405)
+
+
+def test_email_is_url_encoded_and_never_appears_in_errors_or_logs(client, monkeypatch, caplog):
+    email = "weird+tag@example.com"
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.raw_path.decode())
+        raise httpx.ConnectError(f"cannot reach {request.url}")  # the error text itself carries the email
+
+    mock_xposed(monkeypatch, handler)
+    with caplog.at_level("DEBUG"):
+        r = client.post("/api/exposure/email", json={"email": email})
+    assert seen[0].endswith("/check-email/weird%2Btag%40example.com")
+    assert r.status_code == 502 and r.json()["detail"] == breach_check.PUBLIC_ERROR
+    assert "weird" not in r.text and "weird" not in caplog.text
+
+
+def test_malformed_provider_reply_is_a_clean_502(client, monkeypatch):
+    mock_xposed(monkeypatch, lambda request: httpx.Response(200, text="<html>not json</html>"))
+    r = client.post("/api/exposure/email", json={"email": "someone@example.com"})
+    assert r.status_code == 502 and r.json()["detail"] == breach_check.PUBLIC_ERROR

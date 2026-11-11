@@ -1,9 +1,10 @@
-import { Routes, Route } from "react-router-dom"
+import { Routes, Route, Link } from "react-router-dom"
 import { FindingsProvider } from "./context/FindingsContext"
 import Layout from "./components/Layout"
 import ToolPage from "./components/ToolPage"
 import Home from "./pages/Home"
 import EmailCheck from "./components/EmailCheck"
+import PasswordCheck from "./components/PasswordCheck"
 import PhotoCheck from "./components/PhotoCheck"
 import RepoScan from "./components/RepoScan"
 import Dossier from "./components/Dossier"
@@ -14,6 +15,8 @@ import System from "./components/System"
 const intro = {
   email:
     "Your address is the first thread an investigator pulls. Enter it and Eidolon checks it against known breach corpora — every dump it turns up becomes a line in your dossier.",
+  password:
+    "Reused and leaked passwords are how most accounts fall. Check one against known breaches without ever sending it anywhere: it is hashed in this browser and only a short prefix of the hash is looked up.",
   photo:
     "A photo is rarely just an image. Drop one here and Eidolon reads the metadata a casual viewer never sees — the device that took it, the moment it was captured, sometimes the exact coordinates.",
   repo:
@@ -37,6 +40,14 @@ export default function App() {
             element={
               <ToolPage title="Email breach check" intro={intro.email}>
                 <EmailCheck />
+              </ToolPage>
+            }
+          />
+          <Route
+            path="password"
+            element={
+              <ToolPage title="Password breach check" intro={intro.password}>
+                <PasswordCheck />
               </ToolPage>
             }
           />
@@ -80,6 +91,7 @@ export default function App() {
               </ToolPage>
             }
           />
+          <Route path="*" element={<ToolPage title="Page not found" intro="This page does not exist."><Link to="/" className="text-fg underline">Return home</Link></ToolPage>} />
         </Route>
       </Routes>
     </FindingsProvider>

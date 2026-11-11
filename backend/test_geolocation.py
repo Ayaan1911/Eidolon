@@ -1,4 +1,4 @@
-"""IP geolocation: ip-api.com is replaced by httpx.MockTransport. A bad lookup must never
+"""IP geolocation: the provider (ipwho.is) is replaced by httpx.MockTransport. A bad lookup must never
 break the trap: the page is still served and the hit is still logged.
 
 Run from backend/:  python -m pytest test_geolocation.py
@@ -14,14 +14,12 @@ from routers import traps
 from services import geolocation
 
 IP_API_OK = {
-    "status": "success",
+    "success": True,
     "city": "Berlin",
     "country": "Germany",
-    "lat": 52.5,
-    "lon": 13.4,
-    "isp": "Example ISP",
-    "org": "Example Org",
-    "as": "AS64500 Example",
+    "latitude": 52.5,
+    "longitude": 13.4,
+    "connection": {"asn": 64500, "org": "Example Org", "isp": "Example ISP"},
 }
 
 
@@ -67,22 +65,27 @@ def test_success_fills_in_the_location(client, use_real_lookup, monkeypatch, ses
 
     a = last_alert(session_factory)
     assert (a.location, a.isp, a.latitude) == ("Berlin, Germany", "Example ISP", 52.5)
-    # Only the visitor's IP goes to ip-api (in the URL path); nothing else is sent.
-    assert [(u.host, u.path) for u in seen] == [("ip-api.com", "/json/testclient")]
-    assert seen[0].scheme == "http"  # ip-api's free tier has no HTTPS (tracked for a later pass)
+    # Only the visitor's IP goes to the provider (in the URL path), over HTTPS; nothing else is sent.
+    assert [(u.host, u.path) for u in seen] == [("ipwho.is", "/testclient")]
+    assert seen[0].scheme == "https"
+    assert (a.org, a.asn) == ("Example Org", "AS64500 Example Org")
 
 
 @pytest.mark.parametrize(
     "handler",
     [
-        lambda request: httpx.Response(200, json={"status": "fail", "message": "reserved range"}),
+        lambda request: httpx.Response(200, json={"success": False, "message": "Reserved range"}),
+        lambda request: httpx.Response(200, text="<html>captive portal</html>"),
+        lambda request: httpx.Response(200, json=["not", "a", "dict"]),
+        lambda request: httpx.Response(200, json="just a string"),
+        lambda request: httpx.Response(200, json=None),
         lambda request: httpx.Response(429),
         lambda request: httpx.Response(500),
         raises(httpx.ConnectTimeout("timed out")),
         raises(httpx.ReadTimeout("slow")),
         raises(httpx.ConnectError("no route")),
     ],
-    ids=["api-fail", "rate-limited", "server-error", "connect-timeout", "read-timeout", "connect-error"],
+    ids=["api-fail", "not-json", "list", "string", "null", "rate-limited", "server-error", "connect-timeout", "read-timeout", "connect-error"],
 )
 def test_failed_lookup_still_serves_the_page_and_logs_the_hit(
     client, use_real_lookup, monkeypatch, session_factory, handler
@@ -107,3 +110,21 @@ def test_login_submission_survives_a_failed_lookup(client, use_real_lookup, monk
     r = client.post("/trap/t1/login", json={"email": "a@b.co", "password_length": 5})
     assert r.status_code == 204
     assert last_alert(session_factory).email == "a@b.co"
+
+
+def test_odd_field_types_and_coordinates_are_dropped_not_trusted():
+    odd = {
+        "success": True,
+        "city": ["x"],
+        "country": "Germany",
+        "latitude": float("inf"),
+        "longitude": 999,
+        "connection": "nope",
+    }
+    assert geolocation._clean(odd) == {"country": "Germany"}
+
+
+def test_a_page_load_survives_a_non_json_reply(client, use_real_lookup, monkeypatch, session_factory):
+    mock_ip_api(monkeypatch, lambda request: httpx.Response(200, text="not json at all"))
+    assert client.get("/trap/t1").status_code == 200
+    assert last_alert(session_factory).location == "Unknown, Unknown"

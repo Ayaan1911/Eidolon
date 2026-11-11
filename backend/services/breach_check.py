@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 import httpx
 
 from models.schemas import BreachData, EmailCheckResponse
@@ -9,7 +11,9 @@ _metadata_cache: dict[str, dict] = {}
 
 
 class BreachCheckError(Exception):
-    """Raised when the XposedOrNot API cannot be reached or returns an unexpected error."""
+    """Raised when the breach provider fails. The message is constant and public: it never holds the email or provider text."""
+
+PUBLIC_ERROR = "The breach lookup service is unavailable right now. Try again later."
 
 
 async def _get_breach_metadata(client: httpx.AsyncClient) -> dict[str, dict]:
@@ -23,7 +27,7 @@ async def _get_breach_metadata(client: httpx.AsyncClient) -> dict[str, dict]:
 
 
 async def _get_breach_names(client: httpx.AsyncClient, email: str) -> list[str]:
-    resp = await client.get(f"{XPOSED_API_BASE}/check-email/{email}", timeout=10.0)
+    resp = await client.get(f"{XPOSED_API_BASE}/check-email/{quote(email, safe='')}", timeout=10.0)
     if resp.status_code == 404:
         return []
     resp.raise_for_status()
@@ -43,22 +47,14 @@ def _severity(meta: dict, exposed: list[str]) -> str:
     return "Medium"
 
 
-def _risk_score(breaches: list[BreachData]) -> int:
-    if not breaches:
-        return 0
-    score = min(100, 20 + len(breaches) * 15)
-    if any(b.severity == "High" for b in breaches):
-        score = max(score, 85)
-    return score
-
-
 async def check_email_exposure(email: str) -> EmailCheckResponse:
     async with httpx.AsyncClient() as client:
         try:
             names = await _get_breach_names(client, email)
             metadata = await _get_breach_metadata(client) if names else {}
-        except httpx.HTTPError as e:
-            raise BreachCheckError(f"XposedOrNot API request failed: {e}") from e
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            # from None: the original error's text holds the request URL, and the URL holds the email.
+            raise BreachCheckError(PUBLIC_ERROR) from None
 
     breaches = []
     for name in names:
@@ -71,7 +67,6 @@ async def check_email_exposure(email: str) -> EmailCheckResponse:
 
     return EmailCheckResponse(
         email=email,
-        risk_score=_risk_score(breaches),
         total_breaches=len(breaches),
         breaches=breaches,
     )

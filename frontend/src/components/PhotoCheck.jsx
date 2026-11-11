@@ -52,7 +52,7 @@ export default function PhotoCheck() {
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-        className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed py-8 px-4 cursor-pointer transition-colors ${
+        className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed py-8 px-4 cursor-pointer transition-colors focus-within:border-edge ${
           dragOver ? "border-edge bg-slate" : "border-hairline"
         }`}
       >
@@ -62,7 +62,7 @@ export default function PhotoCheck() {
         <input
           type="file"
           accept="image/*"
-          className="hidden"
+          className="sr-only"
           disabled={loading}
           onChange={(e) => e.target.files?.[0] && analyze(e.target.files[0])}
         />

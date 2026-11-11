@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 from functools import lru_cache
 from pathlib import Path
 
@@ -22,6 +23,9 @@ log = logging.getLogger("eidolon.ready")
 DB_CHECK_TIMEOUT_SECONDS = 2
 # Per client IP. Render's checker calls about every 5 seconds (12 a minute); a 429 here would read as "not ready".
 READY_LIMIT = "60/minute"
+# The answer (ready or not) is reused for this long, so probes and visitors cause about 2 database checks a minute.
+READY_CACHE_SECONDS = 30
+_cache: tuple[float, str | None] | None = None  # (expiry on time.monotonic(), reason or None)
 _ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 
 
@@ -39,7 +43,18 @@ def _database_revision() -> str | None:
 
 
 async def not_ready_reason() -> str | None:
-    """None when ready, else a short generic reason. Only the exception class name is ever logged:
+    """None when ready, else a short generic reason (cached for READY_CACHE_SECONDS)."""
+    global _cache
+    now = time.monotonic()
+    if _cache and now < _cache[0]:
+        return _cache[1]
+    reason = await _check()
+    _cache = (now + READY_CACHE_SECONDS, reason)
+    return reason
+
+
+async def _check() -> str | None:
+    """The real check. Only the exception class name is ever logged:
     driver errors can contain the host, the user or the URL."""
     try:
         with anyio.fail_after(DB_CHECK_TIMEOUT_SECONDS):

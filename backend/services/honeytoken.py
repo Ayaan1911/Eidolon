@@ -43,4 +43,5 @@ def is_valid_token(token: str | None) -> bool:
         expected = sign(payload)
     except KeyError:
         return False
-    return hmac.compare_digest(sig, expected)
+    # bytes, not str: compare_digest raises TypeError on a non-ASCII str, which would 500 the endpoint.
+    return hmac.compare_digest(sig.encode(), expected.encode())

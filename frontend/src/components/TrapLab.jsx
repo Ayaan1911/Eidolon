@@ -49,6 +49,7 @@ export default function TrapLab() {
       .then(setAlerts)
       .catch((err) => {
         if (err.status === 401) expireSession()
+        else setError(err.message)
       })
   }, [admin])
 

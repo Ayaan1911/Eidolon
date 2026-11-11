@@ -74,3 +74,19 @@ def test_ready_is_rate_limited_per_ip(client):
 def test_root_answers_200_and_is_not_in_the_schema(client, method):
     assert getattr(client, method)("/").status_code == 200
     assert "/" not in client.get("/openapi.json").json()["paths"]
+
+
+def test_ready_result_is_cached_for_30_seconds(client, monkeypatch):
+    calls = []
+    clock = [1000.0]
+    monkeypatch.setattr(ready.time, "monotonic", lambda: clock[0])
+    real = ready._database_revision
+    monkeypatch.setattr(ready, "_database_revision", lambda: calls.append(1) or real())
+
+    for _ in range(5):
+        assert client.get("/ready").status_code == 200
+    assert len(calls) == 1  # five probes, one database check
+
+    clock[0] += ready.READY_CACHE_SECONDS + 1
+    assert client.get("/ready").status_code == 200
+    assert len(calls) == 2  # expired, so checked again

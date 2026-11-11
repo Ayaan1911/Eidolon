@@ -147,3 +147,9 @@ def test_secrets_never_reach_the_output(capsys, start_json_logging):
     for leaked in ("Sup3rSecretPw", "db-host.invalid", "abc.DEF-123_ghijkl", "test-honeytoken-secret", "test-admin-key"):
         assert leaked not in out
     assert out.count("[redacted]") >= 5
+
+
+def test_httpx_request_urls_are_not_logged():
+    # httpx logs "GET <url>" at INFO, and our URLs carry an email or the ntfy topic.
+    configure_logging()
+    assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING

@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from models.schemas import AdminLoginRequest, AdminLoginResponse
 from routers.exposure import limiter
 from services.admin_auth import issue_token, passphrase_matches, require_admin
+from services.github_scanner import check_token
 from services.client_ip import get_client_ip, socket_peer, trusted_proxy_hops
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -36,3 +37,9 @@ async def client_ip_diagnostics(request: Request) -> dict:
         "trusted_proxy_hops": trusted_proxy_hops(),
         "resolved_ip": get_client_ip(request),
     }
+
+
+@router.get("/diagnostics/github-token", dependencies=[Depends(require_admin)])
+async def github_token_diagnostics() -> dict:
+    """Admin-only: whether the server's GitHub token is accepted (it expires; this says so before a scan does)."""
+    return await check_token()

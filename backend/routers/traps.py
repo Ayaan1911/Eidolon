@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from user_agents import parse
 
 from database import Alert, Trap, session_scope, utc_iso, utc_now
@@ -25,7 +26,7 @@ from services.admin_auth import require_admin
 from services.client_ip import get_client_ip
 from services.geolocation import lookup_ip
 from services.logging_setup import mask_ip
-from services.honeytoken import generate_token, is_valid_token
+from services.honeytoken import TOKEN_PREFIX, generate_token, is_valid_token
 from services.public_url import public_base_url
 from services.ntfy_alert import send_ntfy_alert
 
@@ -104,7 +105,7 @@ def _visitor_fields(request: Request, referer: str | None = None) -> dict:
 
 
 def _geo_columns(geo: dict) -> dict:
-    """The alert columns that come from the ip-api answer ({} = lookup failed)."""
+    """The alert columns that come from the geolocation answer ({} = lookup failed)."""
     return {
         "location": f"{geo.get('city', 'Unknown')}, {geo.get('country', 'Unknown')}",
         "latitude": geo.get("lat", 0.0),
@@ -276,7 +277,14 @@ def deploy_trap_for_finding(
                 finding_id=finding_id,
             )
         )
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            existing = db.query(Trap).filter(Trap.finding_id == finding_id).first()
+            if existing is None:
+                raise
+            trap_id = existing.id
     return TrapCreateResponse(id=trap_id, trap_url=f"{base}/trap/{trap_id}")
 
 
@@ -336,6 +344,7 @@ async def verify_key(request: Request) -> None:
         # One push per key per window (a hash, so the key itself is never stored).
         if should_alert("token:" + hashlib.sha256(key.encode()).hexdigest()[:16]):
             geo = await lookup_ip(ip)
+            finding_id = key[len(TOKEN_PREFIX):].rpartition(".")[0].partition(":")[2]
             await send_ntfy_alert(
                 "Honeytoken triggered",
                 {
@@ -343,6 +352,7 @@ async def verify_key(request: Request) -> None:
                     "IP": clean(ip),
                     "Location": clean(f"{geo.get('city', 'Unknown')}, {geo.get('country', 'Unknown')}"),
                     "Endpoint": "/api/internal/verify",
+                    **({"Finding": clean(finding_id)} if finding_id else {}),
                 },
             )
 
