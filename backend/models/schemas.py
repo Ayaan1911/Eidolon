@@ -61,6 +61,11 @@ class RepoScanResponse(BaseModel):
     incomplete_reason: str | None = None
     # Lines over the scanner's length cap that were not scanned (minified/generated code).
     skipped_long_lines: int = 0
+    # What the scan could not do, so a clean result is never mistaken for a complete one.
+    files_scanned: int = 0
+    files_failed: int = 0
+    repos_failed: int = 0
+    trees_truncated: int = 0
 
 
 class TrapCreateRequest(BaseModel):

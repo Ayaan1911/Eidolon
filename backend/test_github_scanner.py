@@ -138,3 +138,83 @@ def test_unknown_user_message_does_not_echo_the_name(monkeypatch):
     with pytest.raises(github_scanner.GitHubScanError) as e:
         asyncio.run(scan_user_repos("octocat"))
     assert e.value.status_code == 404 and "octocat" not in str(e.value)
+
+
+# --- scan limits: nothing is hidden, a scan can be partial ---------------------------
+
+
+def _serve(monkeypatch, files, *, truncated=False, raw_status=200, delay=0.0, repos=1):
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if delay:
+            await asyncio.sleep(delay)
+        if request.url.host == "api.github.com":
+            if request.url.path.endswith("/repos"):
+                return httpx.Response(
+                    200, json=[{"name": f"r{i}", "owner": {"login": "octocat"}, "fork": False} for i in range(repos)]
+                )
+            tree = [{"path": p, "type": "blob", "size": len(c)} for p, c in files.items()]
+            return httpx.Response(200, json={"tree": tree, "truncated": truncated})
+        return httpx.Response(raw_status, text=files.get(request.url.path.rsplit("/", 1)[-1], ""))
+
+    _mock_github(monkeypatch, handler)
+
+
+def test_scan_stops_at_the_file_limit_and_says_so(monkeypatch):
+    monkeypatch.setattr(github_scanner, "MAX_FILES", 5)
+    monkeypatch.setattr(github_scanner, "BATCH_SIZE", 2)
+    _serve(monkeypatch, {f"f{i}.txt": "hello" for i in range(12)})
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["files_scanned"] == 5
+    assert result["incomplete"] is True and "file limit" in result["incomplete_reason"]
+
+
+def test_failed_fetches_and_truncated_trees_are_reported(monkeypatch):
+    _serve(monkeypatch, {"a.txt": "x", "b.txt": "y"}, truncated=True, raw_status=500)
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["files_failed"] == 2 and result["files_scanned"] == 0
+    assert result["trees_truncated"] == 1
+    assert result["incomplete"] is True
+    assert "2 files could not be fetched" in result["incomplete_reason"]
+    assert "too large" in result["incomplete_reason"]
+
+
+def test_a_repo_that_cannot_be_listed_is_counted_not_hidden(monkeypatch):
+    def handler(request):
+        if request.url.path.endswith("/repos"):
+            return httpx.Response(200, json=[{"name": "r", "owner": {"login": "octocat"}, "fork": False}])
+        return httpx.Response(500)
+
+    _mock_github(monkeypatch, handler)
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["repos_failed"] == 1 and result["incomplete"] is True
+
+
+def test_deadline_returns_partial_results(monkeypatch):
+    monkeypatch.setattr(github_scanner, "SCAN_DEADLINE_SECONDS", 0.3)
+    _serve(monkeypatch, {"a.txt": "x"}, delay=0.2, repos=3)  # each repo needs 0.4s+
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["incomplete"] is True and "time limit" in result["incomplete_reason"]
+
+
+def test_token_check_reports_state_without_the_token(client, admin_headers, monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_examplenotarealtoken")
+    for handler, expected in (
+        (lambda r: httpx.Response(401, json={"message": "Bad credentials"}), "rejected"),
+        (lambda r: httpx.Response(200, json={"resources": {"core": {"limit": 5000, "remaining": 4999}}}), "accepted"),
+        (lambda r: httpx.Response(500), "unknown"),
+    ):
+        real = httpx.AsyncClient
+        monkeypatch.setattr(github_scanner.httpx, "AsyncClient", lambda handler=handler, real=real, **kw: real(transport=httpx.MockTransport(handler), **kw))
+        r = client.get("/api/admin/diagnostics/github-token", headers=admin_headers)
+        assert r.json()["status"] == expected and "ghp_" not in r.text
+        monkeypatch.setattr(github_scanner.httpx, "AsyncClient", real)
+
+
+def test_token_check_when_not_configured(client, admin_headers, monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    r = client.get("/api/admin/diagnostics/github-token", headers=admin_headers)
+    assert r.json() == {"configured": False, "status": "not_configured"}
+
+
+def test_token_check_is_admin_only(client):
+    assert client.get("/api/admin/diagnostics/github-token").status_code == 401
