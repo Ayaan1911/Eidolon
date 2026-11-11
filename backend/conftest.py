@@ -33,7 +33,7 @@ os.environ.setdefault("EIDOLON_ENV", "dev")
 import main  # noqa: E402
 import database
 from database import Trap
-from routers import exposure, traps
+from routers import exposure, ready, traps
 from services import admin_auth, breach_check
 
 ADMIN_KEY = "test-admin-key"
@@ -99,10 +99,12 @@ def _reset_in_memory_state():
     exposure.limiter.reset()
     breach_check._metadata_cache.clear()
     traps._last_alert_at.clear()
+    ready._cache = None
     yield
     exposure.limiter.reset()
     breach_check._metadata_cache.clear()
     traps._last_alert_at.clear()
+    ready._cache = None
 
 
 @pytest.fixture(autouse=True)

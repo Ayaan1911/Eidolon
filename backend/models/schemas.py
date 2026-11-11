@@ -14,19 +14,8 @@ class BreachData(BaseModel):
 
 class EmailCheckResponse(BaseModel):
     email: str
-    risk_score: int
     total_breaches: int
     breaches: list[BreachData]
-
-
-class PasswordCheckRequest(BaseModel):
-    password: str
-
-
-class PasswordCheckResponse(BaseModel):
-    score: int
-    feedback: str
-    crack_time_display: str
 
 
 class PhotoMetadataResponse(BaseModel):
@@ -37,8 +26,12 @@ class PhotoMetadataResponse(BaseModel):
     captured_at: str | None = None
 
 
+# GitHub's own rule: 1-39 letters, digits or single hyphens, not starting or ending with a hyphen.
+GITHUB_USERNAME = r"^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$"
+
+
 class RepoScanRequest(BaseModel):
-    username: str
+    username: str = Field(pattern=GITHUB_USERNAME, max_length=39)
 
 
 class TrapStatus(BaseModel):
@@ -72,6 +65,11 @@ class RepoScanResponse(BaseModel):
     incomplete_reason: str | None = None
     # Lines over the scanner's length cap that were not scanned (minified/generated code).
     skipped_long_lines: int = 0
+    # What the scan could not do, so a clean result is never mistaken for a complete one.
+    files_scanned: int = 0
+    files_failed: int = 0
+    repos_failed: int = 0
+    trees_truncated: int = 0
 
 
 class TrapCreateRequest(BaseModel):

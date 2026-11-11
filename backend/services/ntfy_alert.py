@@ -19,6 +19,8 @@ async def send_ntfy_alert(title: str, fields: dict[str, str]) -> None:
         log.warning("NTFY_TOPIC not set - skipping ntfy alert")
         return
 
+    # Control characters (newlines, NUL, ...) have no place in a header value; non-ASCII text is fine.
+    title = "".join(ch for ch in title if ch.isprintable())[:200]
     body = "\n".join(f"{k}: {v}" for k, v in fields.items())
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:

@@ -18,6 +18,7 @@ GATED = [
     ("POST", "/api/findings/abc123/deploy-trap", BODY_FINDING),
     ("DELETE", "/api/traps/whatever", None),
     ("GET", "/api/traps/alerts", None),
+    ("GET", "/api/admin/diagnostics/github-token", None),
 ]
 
 

@@ -65,19 +65,30 @@ export function photoToFindings(result, formatCapturedAt) {
 }
 
 export function repoToFindings(username, result) {
+  const found = result.results.flatMap((repo) =>
+    repo.findings.map((f) => ({
+      type: "secret",
+      summary: `A ${f.type} was found exposed in ${repo.repo} at ${f.file}, line ${f.line}.`,
+      severity: f.severity,
+      // repo isn't on the backend's per-finding object; the deploy request needs it.
+      raw: { ...f, repo: repo.repo },
+    }))
+  )
   // An interrupted scan (almost always GitHub's unauthenticated rate limit) must say so,
   // not read as "checked and clean" - the two look identical once collapsed to 0 findings.
-  if (result.incomplete) {
+  if (result.incomplete || result.skipped_long_lines > 0) {
     return [
       {
         type: "secret",
         empty: true,
-        summary: `Repo scan for @${username} was interrupted after ${result.repos_scanned} repo${
+        summary: result.incomplete ? `Repo scan for @${username} was interrupted after ${result.repos_scanned} repo${
           result.repos_scanned === 1 ? "" : "s"
-        } — ${result.incomplete_reason}. Results may be incomplete; try again shortly.`,
+        } - ${result.incomplete_reason}.${result.skipped_long_lines > 0 ? ` ${result.skipped_long_lines} long lines were skipped.` : ""} Results may be incomplete; try again shortly.`
+          : `Repo scan for @${username} skipped ${result.skipped_long_lines} long lines; review them manually.`,
         severity: "None",
         raw: result,
       },
+      ...found,
     ]
   }
   if (result.total_findings === 0) {
@@ -93,14 +104,5 @@ export function repoToFindings(username, result) {
       },
     ]
   }
-  return result.results.flatMap((repo) =>
-    repo.findings.map((f) => ({
-      type: "secret",
-      summary: `A ${f.type} was found exposed in ${repo.repo} at ${f.file}, line ${f.line}.`,
-      severity: f.severity,
-      // repo isn't on the backend's per-finding object (it's one level up); adding it
-      // here is what lets FindingCard build the deploy-trap request from finding.raw alone.
-      raw: { ...f, repo: repo.repo },
-    }))
-  )
+  return found
 }

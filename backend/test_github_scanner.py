@@ -7,6 +7,7 @@ No real GitHub calls - httpx.MockTransport stands in for the network.
 import asyncio
 
 import httpx
+import pytest
 
 from services import github_scanner
 from services.github_scanner import _headers, _rate_limit_reason, scan_user_repos
@@ -28,17 +29,12 @@ def test_token_sends_classic_scheme_not_bearer(monkeypatch):
     assert _headers()["Authorization"] == "token ghp_examplenotarealtoken"
 
 
-def test_rate_limit_reason_says_unconfigured_when_no_token():
-    reason = _rate_limit_reason(mid_scan=False)
-    assert "no github_token is configured" in reason.lower()
-    assert "60 requests/hour" in reason
-
-
-def test_rate_limit_reason_says_authenticated_when_token_present(monkeypatch):
+def test_rate_limit_reason_is_generic_with_or_without_a_token(monkeypatch):
+    without = _rate_limit_reason(mid_scan=False)
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_examplenotarealtoken")
-    reason = _rate_limit_reason(mid_scan=True)
-    assert "despite an authenticated github_token" in reason.lower()
-    assert "no github_token" not in reason.lower()
+    with_token = _rate_limit_reason(mid_scan=False)
+    assert without == with_token  # nothing public tells the two setups apart
+    assert "token" not in with_token.lower()
 
 
 def _rate_limited_transport(request: httpx.Request) -> httpx.Response:
@@ -51,7 +47,7 @@ def test_scan_reports_unconfigured_token_when_rate_limited(monkeypatch):
 
     assert result["incomplete"] is True
     assert result["repos_scanned"] == 0
-    assert "no github_token is configured" in result["incomplete_reason"].lower()
+    assert "rate limit" in result["incomplete_reason"].lower()
 
 
 def test_scan_reports_authenticated_rate_limit_when_token_set(monkeypatch):
@@ -60,7 +56,7 @@ def test_scan_reports_authenticated_rate_limit_when_token_set(monkeypatch):
     result = asyncio.run(scan_user_repos("octocat"))
 
     assert result["incomplete"] is True
-    assert "despite an authenticated github_token" in result["incomplete_reason"].lower()
+    assert "token" not in result["incomplete_reason"].lower()
 
 
 def test_raw_content_fetch_never_carries_the_github_token(monkeypatch):
@@ -118,3 +114,132 @@ def test_lookalike_names_are_still_scanned():
     ):
         assert _is_candidate(path, 100), path
 
+
+
+def _boom(request):
+    raise httpx.ConnectError("no route to api.github.com/users/octocat")
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [lambda r: httpx.Response(401, json={"message": "Bad credentials"}), lambda r: httpx.Response(500, text="boom"), _boom],
+    ids=["token-rejected", "server-error", "network"],
+)
+def test_github_errors_are_generic(monkeypatch, handler):
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_examplenotarealtoken")
+    _mock_github(monkeypatch, handler)
+    with pytest.raises(github_scanner.GitHubScanError) as e:
+        asyncio.run(scan_user_repos("octocat"))
+    assert str(e.value) == github_scanner.PUBLIC_ERROR
+
+
+def test_unknown_user_message_does_not_echo_the_name(monkeypatch):
+    _mock_github(monkeypatch, lambda r: httpx.Response(404, json={}))
+    with pytest.raises(github_scanner.GitHubScanError) as e:
+        asyncio.run(scan_user_repos("octocat"))
+    assert e.value.status_code == 404 and "octocat" not in str(e.value)
+
+
+# --- scan limits: nothing is hidden, a scan can be partial ---------------------------
+
+
+def _serve(monkeypatch, files, *, truncated=False, raw_status=200, delay=0.0, repos=1):
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if delay:
+            await asyncio.sleep(delay)
+        if request.url.host == "api.github.com":
+            if request.url.path.endswith("/repos"):
+                return httpx.Response(
+                    200, json=[{"name": f"r{i}", "owner": {"login": "octocat"}, "fork": False} for i in range(repos)]
+                )
+            tree = [{"path": p, "type": "blob", "size": len(c)} for p, c in files.items()]
+            return httpx.Response(200, json={"tree": tree, "truncated": truncated})
+        return httpx.Response(raw_status, text=files.get(request.url.path.rsplit("/", 1)[-1], ""))
+
+    _mock_github(monkeypatch, handler)
+
+
+def test_scan_stops_at_the_file_limit_and_says_so(monkeypatch):
+    monkeypatch.setattr(github_scanner, "MAX_FILES", 5)
+    monkeypatch.setattr(github_scanner, "BATCH_SIZE", 2)
+    _serve(monkeypatch, {f"f{i}.txt": "hello" for i in range(12)})
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["files_scanned"] == 5
+    assert result["incomplete"] is True and "file limit" in result["incomplete_reason"]
+
+
+def test_failed_fetches_and_truncated_trees_are_reported(monkeypatch):
+    _serve(monkeypatch, {"a.txt": "x", "b.txt": "y"}, truncated=True, raw_status=500)
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["files_failed"] == 2 and result["files_scanned"] == 0
+    assert result["trees_truncated"] == 1
+    assert result["incomplete"] is True
+    assert "2 files could not be fetched" in result["incomplete_reason"]
+    assert "too large" in result["incomplete_reason"]
+
+
+def test_a_repo_that_cannot_be_listed_is_counted_not_hidden(monkeypatch):
+    def handler(request):
+        if request.url.path.endswith("/repos"):
+            return httpx.Response(200, json=[{"name": "r", "owner": {"login": "octocat"}, "fork": False}])
+        return httpx.Response(500)
+
+    _mock_github(monkeypatch, handler)
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["repos_failed"] == 1 and result["incomplete"] is True
+
+
+def test_missing_repo_tree_is_not_reported_as_a_clean_scan(monkeypatch):
+    def handler(request):
+        if request.url.path.endswith("/repos"):
+            return httpx.Response(200, json=[{"name": "r", "owner": {"login": "octocat"}, "fork": False}])
+        return httpx.Response(404)
+
+    _mock_github(monkeypatch, handler)
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["repos_failed"] == 1
+    assert result["repos_scanned"] == 0
+    assert result["incomplete"] is True
+
+
+def test_deadline_returns_partial_results(monkeypatch):
+    monkeypatch.setattr(github_scanner, "SCAN_DEADLINE_SECONDS", 0.3)
+    _serve(monkeypatch, {"a.txt": "x"}, delay=0.2, repos=3)  # each repo needs 0.4s+
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["incomplete"] is True and "time limit" in result["incomplete_reason"]
+
+
+def test_token_check_reports_state_without_the_token(client, admin_headers, monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_examplenotarealtoken")
+    for handler, expected in (
+        (lambda r: httpx.Response(401, json={"message": "Bad credentials"}), "rejected"),
+        (lambda r: httpx.Response(200, json={"resources": {"core": {"limit": 5000, "remaining": 4999}}}), "accepted"),
+        (lambda r: httpx.Response(500), "unknown"),
+    ):
+        real = httpx.AsyncClient
+        monkeypatch.setattr(github_scanner.httpx, "AsyncClient", lambda handler=handler, real=real, **kw: real(transport=httpx.MockTransport(handler), **kw))
+        r = client.get("/api/admin/diagnostics/github-token", headers=admin_headers)
+        assert r.json()["status"] == expected and "ghp_" not in r.text
+        monkeypatch.setattr(github_scanner.httpx, "AsyncClient", real)
+
+
+def test_token_check_when_not_configured(client, admin_headers, monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    r = client.get("/api/admin/diagnostics/github-token", headers=admin_headers)
+    assert r.json() == {"configured": False, "status": "not_configured"}
+
+
+def test_token_check_is_admin_only(client):
+    assert client.get("/api/admin/diagnostics/github-token").status_code == 401
+
+
+@pytest.mark.parametrize("name", ["", "-a", "a-", "a--b", "a_b", "a b", "a/b", "../x", "a" * 40, chr(228), "a%2Fb"])
+def test_bad_github_usernames_are_rejected_before_any_request(client, name):
+    assert client.post("/api/exposure/repos", json={"username": name}).status_code == 422
+
+
+@pytest.mark.parametrize("name", ["a", "octocat", "a-b-c", "A1", "a" * 39])
+def test_valid_github_usernames_pass_validation(name):
+    from models.schemas import RepoScanRequest
+
+    assert RepoScanRequest(username=name).username == name

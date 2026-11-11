@@ -14,6 +14,7 @@ from routers.ready import router as ready_router
 from routers.traps import router as traps_router
 from database import SessionLocal
 from services.client_ip import trusted_proxy_hops
+from services.body_limit import RequestBodyLimitMiddleware
 from services.logging_setup import RequestIdMiddleware, configure_logging
 from services.retention import delete_old_alerts, retention_days
 from services.startup_checks import check_database, check_log_level, check_public_base_url, check_secrets
@@ -59,6 +60,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Comma-separated deployed frontend origins, e.g. "https://eidolon.vercel.app" (no trailing slash needed).
 allowed_origins = [o.strip().rstrip("/") for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
 
+app.add_middleware(RequestBodyLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,

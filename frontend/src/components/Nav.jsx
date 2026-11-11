@@ -2,6 +2,7 @@ import { Link, NavLink } from "react-router-dom"
 
 const links = [
   ["/email", "Email"],
+  ["/password", "Password"],
   ["/photo", "Photo"],
   ["/repo", "Repo"],
   ["/dossier", "Dossier"],

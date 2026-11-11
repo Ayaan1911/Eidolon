@@ -10,8 +10,8 @@
 - [x] Pass 5 — Postgres on Neon with Alembic (done and verified in production: traps and hits survive redeploys, ntfy alerts arrive)
 - [x] Pass 5b — five fixes: UTC timestamps, https links, atomic counter, event loop, CI on 3.14 (done and verified in production)
 - [ ] Pass 6 — Docker and Compose
-- [x] Pass 7 — logging, readiness and background geolocation (done on `pass-7-logging-readiness`, pending review)
-- [ ] Pass 8 — Mirror honesty fixes
+- [x] Pass 7 — logging, readiness and background geolocation (merged, PR #5)
+- [x] Pass 8 — Mirror honesty and input safety (done on `pass-8-mirror-honesty`: no scores, in-browser password check, HTTPS geolocation, bounded scans)
 - [ ] Pass 9 — README and threat model
 - [ ] Pass 10 — differentiator
 
@@ -483,3 +483,53 @@ return _page()
 - `/ready` uses the app's own connection pool; on a free Neon database each probe can wake a suspended database (that is the point of the check, but it costs compute hours).
 - The in-memory 5-minute dedupe resets on restart (unchanged, documented since Pass 4a).
 - Alembic's own command-line output uses its own logging setup, not the JSON one; it only runs at deploy time.
+
+## Pass 8 revision note — Mirror honesty and input safety
+
+**What changed and why.** Mirror is the half of Eidolon that tells you what you expose. It must not claim more than it knows, and it must not take more than it needs.
+- *No numbers.* `risk_score` (email) and the password `score` are gone from the API, models, tests and docs. Findings are narrative; a number invites false precision.
+- *Password check in the browser.* The old route sent your password to our server for a zxcvbn score. Now `frontend/src/lib/pwned.js` hashes it with SHA-1 in the browser and asks Have I Been Pwned only for the first 5 hex characters (k-anonymity). The match is made locally. The server route and the `zxcvbn` dependency were deleted. HIBP allows browser calls (CORS `*`), so no proxy was needed.
+- *The email never leaks.* It is URL-encoded in the provider request, provider errors become one constant public message, and `httpx`/`httpcore` loggers are set to WARNING (they log the full URL of every request at INFO, which would put the email and the ntfy topic in the logs).
+- *Geolocation* moved from plain HTTP (ip-api) to HTTPS `ipwho.is` (free, no key, 1,000 lookups a day per client IP, no uptime promise). A malformed or non-JSON reply returns `{}`; the trap page and the push still work.
+- *`/ready`* caches its answer for 30 seconds.
+- *GitHub scans* have limits (200 files, batches of 10, 60-second deadline) and report what they could not do (`files_failed`, `repos_failed`, `trees_truncated`, `incomplete_reason`). Public error text is generic and no longer says whether a server token exists. `GET /api/admin/diagnostics/github-token` (admin only) says whether the token is accepted, using GitHub's free `rate_limit` endpoint.
+- *Input safety:* GitHub username pattern, photo read bounded to limit + 1 byte and parsed in a worker thread, GPS validated, honeytoken signature compared as bytes, notification titles stripped of control characters.
+
+**Key concepts, with my real code.**
+
+*k-anonymity.* Many passwords share the same first 5 hash characters, so the service cannot tell which one you asked about:
+
+```js
+const prefix = hash.slice(0, 5)
+const res = await fetchImpl(RANGE_URL + prefix, { headers: { "Add-Padding": "true" } })
+// ... then look for hash.slice(5) in the returned list, locally
+```
+
+`Add-Padding` makes every reply a similar size, so the length leaks nothing.
+
+*Fail-soft versus fail-closed.* Geolocation is nice-to-have, so every failure returns `{}` and the trap carries on. Secrets and auth are the opposite: they refuse to start when wrong.
+
+```python
+except (httpx.HTTPError, ValueError):  # ValueError: the reply was not JSON
+    return {}
+```
+
+*Partial results must say they are partial.* A scan that stops at a limit and says nothing looks like a clean bill of health. Every limit appends a reason, and `incomplete` is simply `bool(reasons)`.
+
+*`raise ... from None`.* An exception chained with `from e` can print the original text (which held the URL, which held the email) in a traceback. `from None` drops the chain.
+
+*`hmac.compare_digest` and non-ASCII.* Given two `str` it raises `TypeError` on non-ASCII, so a hostile token could 500 the endpoint. Compare the encoded bytes.
+
+**Likely interview questions.**
+1. *How can you check a password against a breach list without revealing it?* — Hash it locally, send only a short hash prefix, get back every suffix with that prefix, and compare locally. The service sees a bucket of thousands of hashes, never your password or full hash.
+2. *Why remove the risk score?* — It was an invented formula (20 plus 15 per breach), not a measurement. A score hides the reasoning; a narrative shows what was found and what to do.
+3. *How do you stop a scan from being abused?* — Bound everything: files, bytes, concurrency, wall-clock time. Return what you have and say it is partial instead of failing or hiding the cut-off.
+
+**Mistakes to avoid.**
+- Logging or raising an upstream error object: it carries the URL. Use constant public messages and log only the class name.
+- Trusting library logs: `httpx` logs request URLs at INFO.
+- Validating coordinates only as "is a number": NaN and infinity pass `float()`, and a latitude with hemisphere `E` is nonsense.
+- Reading an upload fully before checking its size.
+- Letting the public error message reveal configuration (for example "no GITHUB_TOKEN is configured").
+
+**Left for later passes.** A request-body size limit before multipart parsing, `/docs` and security headers (Pass 9); `verify_key` and the startup retention cleanup still run on the event loop (Pass 13).

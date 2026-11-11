@@ -7,14 +7,17 @@ Run from backend/:  DATABASE_URL=postgresql://user:pass@localhost/db python -m p
 
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
+from conftest import alembic_config
 import main
 import database
 from database import Alert, Base, Trap
@@ -60,6 +63,19 @@ def test_schema_matches_the_models(pg_engine):
 def test_timestamp_columns_are_timezone_aware(pg_engine):
     columns = {c["name"]: c["type"] for c in inspect(pg_engine).get_columns("alerts")}
     assert columns["timestamp"].timezone is True
+
+
+def test_unique_finding_migration_preserves_deployed_url_and_alert(pg_engine):
+    with pg_engine.begin() as connection:
+        config = alembic_config(connection)
+        command.downgrade(config, "0001")
+        connection.execute(text("INSERT INTO traps (id, name, finding_id) VALUES ('pg-old-url', 'old trap', 'pg-finding')"))
+        connection.execute(text("INSERT INTO alerts (trap_id, ip) VALUES ('pg-old-url', '127.0.0.1')"))
+        command.upgrade(config, "head")
+        assert connection.execute(text("SELECT id, name FROM traps WHERE finding_id = 'pg-finding'")).one() == ('pg-old-url', 'old trap')
+        assert connection.execute(text("SELECT trap_id, ip FROM alerts WHERE trap_id = 'pg-old-url'")).one() == ('pg-old-url', '127.0.0.1')
+        connection.execute(text("DELETE FROM alerts WHERE trap_id = 'pg-old-url'"))
+        connection.execute(text("DELETE FROM traps WHERE id = 'pg-old-url'"))
 
 
 def test_create_a_trap_record_a_hit_read_it_back_and_delete_old_hits(pg_client, admin_headers):
@@ -109,3 +125,24 @@ def test_simultaneous_hits_are_all_counted(pg_client):
 
     with Session() as db:
         assert db.query(Trap).filter(Trap.id == "race").one().trigger_count == threads * per_thread
+
+
+def test_simultaneous_finding_deployments_return_one_trap(pg_client):
+    from fastapi import Request
+    from models.schemas import FindingTrapRequest
+    from routers.traps import deploy_trap_for_finding
+
+    _, Session = pg_client
+    barrier = threading.Barrier(8)
+
+    def deploy(_):
+        barrier.wait(timeout=10)
+        body = FindingTrapRequest(repo="owner/repo", file="config", type="API key")
+        request = Request({"type": "http", "scheme": "https", "server": ("example.com", 443), "path": "/", "headers": []})
+        return deploy_trap_for_finding("same-finding", body, request).id
+
+    with ThreadPoolExecutor(max_workers=8) as workers:
+        ids = list(workers.map(deploy, range(8)))
+    assert len(set(ids)) == 1
+    with Session() as db:
+        assert db.query(Trap).filter(Trap.finding_id == "same-finding").count() == 1
