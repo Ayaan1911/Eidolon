@@ -35,8 +35,8 @@ false confidence, so Eidolon sticks to narrative findings with full reasoning in
 **The Trap** plants deception tied to what the Mirror finds, so if someone acts on that exposure, you
 know. Right now that's one working trap type: a decoy API key (`eidolon_live_...`) that's
 self-verifying via an HMAC signature — no database required — and posts an ntfy alert with the
-requester's IP and rough geolocation the moment it's used. Other trap types (tied directly to
-Mirror findings) aren't built yet.
+requester's IP and rough geolocation the moment it's used. Admins can also create finding-linked
+trap login pages; their visits and form attempts appear in the Trap Lab signal stream.
 
 ## Status
 
@@ -45,7 +45,7 @@ Mirror findings) aren't built yet.
   - [x] Honeytoken (self-verifying decoy API key, ntfy alert)
   - [x] Wire honeytoken generation into Mirror dossier findings
 
-`legacy/` holds the previous implementation for reference only — it isn't part of the build.
+The previous implementation is not part of the tracked build.
 
 ## Structure
 
@@ -173,3 +173,27 @@ request after a quiet period can take a few extra seconds while it wakes up.
 Still in memory, so reset on every restart (acceptable here): rate-limit counters, the "one ntfy push
 per trap per 5 minutes" timestamps, and the breach-metadata cache. Stateless things never needed storage:
 honeytoken and admin-session signatures are recomputed from the secrets.
+
+## Release checks
+
+`render.yaml` defines the backend build, migration-before-start command and `/ready`
+probe. Supply an SSL-enabled direct Postgres URL, real admin passphrase, notification
+topic, GitHub read token, frontend CORS origin and explicit public backend URL. Keep the
+generated honeytoken signing secret stable. Never enable `EIDOLON_ENV=dev` in production.
+Verify the proxy-hop count using the admin diagnostic; its default of zero trusts no headers.
+The frontend needs the real `VITE_API_BASE` at build time.
+
+Back up and test-restore the database before applying migration `0002`. Drain all writers.
+The migration preserves trap rows and deployed URLs and refuses duplicate non-NULL finding
+associations. Review such duplicates explicitly: one row keeps the finding association;
+others may remain standalone traps with `finding_id = NULL`, retaining their URLs/history.
+Postgres lock waits are capped at 5 seconds and statements at 60 seconds. Test migration
+upgrade/downgrade on a restored database before production; never assume a rollback restores
+data from an older, destructive migration implementation.
+
+Entire HTTP bodies are capped at 11 MiB before multipart parsing, with photos capped at
+10 MiB. Per-request buffering still needs ingress idle/read timeouts and bounded aggregate
+concurrency (the supplied backend start command limits concurrency to 8). Run the complete
+backend suite and PostgreSQL tests, frontend tests/lint/build, then verify `/health`, `/ready`,
+admin login/logout, oversized uploads, partial scans, deployed trap URLs and real notification
+delivery. The dossier lives in browser memory and resets on reload; notifications are best effort.

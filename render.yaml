@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: eidolon-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT --no-proxy-headers --limit-concurrency 8
+    healthCheckPath: /ready
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_KEY
+        sync: false
+      - key: HONEYTOKEN_SECRET
+        generateValue: true
+      - key: NTFY_TOPIC
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: TRUSTED_PROXY_HOPS
+        value: "0"
