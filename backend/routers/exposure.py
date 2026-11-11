@@ -1,6 +1,5 @@
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from PIL import UnidentifiedImageError
 from slowapi import Limiter
 
 from database import Trap, session_scope
@@ -37,12 +36,14 @@ async def exposure_email(request: Request, body: EmailCheckRequest) -> EmailChec
 @router.post("/photo", response_model=PhotoMetadataResponse)
 @limiter.limit("10/minute")
 async def exposure_photo(request: Request, file: UploadFile = File(...)) -> PhotoMetadataResponse:
-    image_bytes = await file.read()
+    # Read one byte past the limit: enough to know it is too big, never the whole oversized file.
+    image_bytes = await file.read(MAX_PHOTO_BYTES + 1)
     if len(image_bytes) > MAX_PHOTO_BYTES:
         raise HTTPException(status_code=413, detail="Image exceeds 10MB limit")
     try:
-        return extract_photo_metadata(image_bytes)
-    except UnidentifiedImageError as e:
+        # Pillow is CPU-bound: a worker thread keeps the event loop free for other requests.
+        return await run_in_threadpool(extract_photo_metadata, image_bytes)
+    except Exception as e:  # untrusted file: any parse failure (truncated, bomb, bad EXIF) is a plain 400
         raise HTTPException(status_code=400, detail="Could not read this file as an image") from e
 
 

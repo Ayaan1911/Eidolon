@@ -94,3 +94,9 @@ def test_verify_endpoint_alerts_on_a_real_decoy_but_looks_like_a_normal_failure(
     title, fields = alerts[0]
     assert title == "Honeytoken triggered"
     assert fields["Endpoint"] == "/api/internal/verify"
+
+
+def test_non_ascii_signature_is_rejected_not_a_crash():
+    accent, jp = chr(233), chr(0x65E5) + chr(0x672C)
+    assert honeytoken.is_valid_token("eidolon_live_abc." + accent + "0" * 63) is False
+    assert honeytoken.is_valid_token("eidolon_live_" + jp + "." + jp) is False

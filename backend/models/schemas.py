@@ -26,8 +26,12 @@ class PhotoMetadataResponse(BaseModel):
     captured_at: str | None = None
 
 
+# GitHub's own rule: 1-39 letters, digits or single hyphens, not starting or ending with a hyphen.
+GITHUB_USERNAME = r"^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$"
+
+
 class RepoScanRequest(BaseModel):
-    username: str
+    username: str = Field(pattern=GITHUB_USERNAME, max_length=39)
 
 
 class TrapStatus(BaseModel):

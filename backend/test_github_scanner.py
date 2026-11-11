@@ -218,3 +218,15 @@ def test_token_check_when_not_configured(client, admin_headers, monkeypatch):
 
 def test_token_check_is_admin_only(client):
     assert client.get("/api/admin/diagnostics/github-token").status_code == 401
+
+
+@pytest.mark.parametrize("name", ["", "-a", "a-", "a--b", "a_b", "a b", "a/b", "../x", "a" * 40, chr(228), "a%2Fb"])
+def test_bad_github_usernames_are_rejected_before_any_request(client, name):
+    assert client.post("/api/exposure/repos", json={"username": name}).status_code == 422
+
+
+@pytest.mark.parametrize("name", ["a", "octocat", "a-b-c", "A1", "a" * 39])
+def test_valid_github_usernames_pass_validation(name):
+    from models.schemas import RepoScanRequest
+
+    assert RepoScanRequest(username=name).username == name
