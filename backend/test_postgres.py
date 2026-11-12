@@ -78,6 +78,26 @@ def test_unique_finding_migration_preserves_deployed_url_and_alert(pg_engine):
         connection.execute(text("DELETE FROM traps WHERE id = 'pg-old-url'"))
 
 
+def test_duplicate_finding_migration_fails_without_losing_urls_alerts_or_counts(pg_engine):
+    with pg_engine.begin() as connection:
+        config = alembic_config(connection)
+        command.downgrade(config, "0001")
+        connection.execute(text("INSERT INTO traps (id, name, finding_id, trigger_count) VALUES "
+                                "('first-url', 'first', 'duplicate', 2), "
+                                "('second-url', 'second', 'duplicate', 3)"))
+        connection.execute(text("INSERT INTO alerts (trap_id, ip) VALUES ('second-url', '127.0.0.1')"))
+        with pytest.raises(RuntimeError, match="Duplicate finding associations"):
+            command.upgrade(config, "head")
+        assert connection.execute(text("SELECT id, trigger_count FROM traps ORDER BY id")).all() == [
+            ("first-url", 2), ("second-url", 3),
+        ]
+        assert connection.execute(text("SELECT trap_id FROM alerts")).scalar_one() == "second-url"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0001"
+        connection.execute(text("DELETE FROM alerts WHERE trap_id = 'second-url'"))
+        connection.execute(text("DELETE FROM traps WHERE finding_id = 'duplicate'"))
+        command.upgrade(config, "head")
+
+
 def test_create_a_trap_record_a_hit_read_it_back_and_delete_old_hits(pg_client, admin_headers):
     client, Session = pg_client
 
