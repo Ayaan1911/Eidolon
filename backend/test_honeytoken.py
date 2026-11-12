@@ -3,7 +3,10 @@
 Run from backend/:  python -m pytest test_honeytoken.py
 """
 
+import asyncio
+
 import pytest
+from fastapi import Request
 
 from routers import traps
 from services import honeytoken
@@ -94,6 +97,25 @@ def test_verify_endpoint_alerts_on_a_real_decoy_but_looks_like_a_normal_failure(
     title, fields = alerts[0]
     assert title == "Honeytoken triggered"
     assert fields["Endpoint"] == "/api/internal/verify"
+
+
+def test_valid_decoy_response_is_ready_before_network_alert(monkeypatch):
+    called = []
+
+    async def lookup(ip):
+        called.append(ip)
+        return {}
+
+    monkeypatch.setattr(traps, "lookup_ip", lookup)
+    request = Request({
+        "type": "http", "method": "GET", "path": "/api/internal/verify",
+        "headers": [(b"x-api-key", honeytoken.generate_token().encode())],
+        "client": ("127.0.0.1", 1234),
+    })
+    response = asyncio.run(traps.verify_key(request))
+    assert response.status_code == 401
+    assert response.background and response.background.tasks
+    assert called == []
 
 
 def test_non_ascii_signature_is_rejected_not_a_crash():
