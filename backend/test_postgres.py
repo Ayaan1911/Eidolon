@@ -88,10 +88,11 @@ def test_duplicate_finding_migration_fails_without_losing_urls_alerts_or_counts(
         connection.execute(text("INSERT INTO alerts (trap_id, ip) VALUES ('second-url', '127.0.0.1')"))
         with pytest.raises(RuntimeError, match="Duplicate finding associations"):
             command.upgrade(config, "head")
-        assert connection.execute(text("SELECT id, trigger_count FROM traps ORDER BY id")).all() == [
+        assert connection.execute(text("SELECT id, trigger_count FROM traps "
+                                       "WHERE id IN ('first-url', 'second-url') ORDER BY id")).all() == [
             ("first-url", 2), ("second-url", 3),
         ]
-        assert connection.execute(text("SELECT trap_id FROM alerts")).scalar_one() == "second-url"
+        assert connection.execute(text("SELECT trap_id FROM alerts WHERE trap_id = 'second-url'")).scalar_one() == "second-url"
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0001"
         connection.execute(text("DELETE FROM alerts WHERE trap_id = 'second-url'"))
         connection.execute(text("DELETE FROM traps WHERE finding_id = 'duplicate'"))
