@@ -178,7 +178,7 @@ def _patch_github(monkeypatch, files: dict[str, str], sizes: dict[str, int] | No
             return httpx.Response(200, json={"tree": tree})
         path = request.url.path.rsplit("/", 1)[-1]
         match = next((c for p, c in files.items() if p.endswith(path)), "")
-        return httpx.Response(200, text=match)
+        return httpx.Response(200, stream=httpx.ByteStream(match.encode()))
 
     real_client = httpx.AsyncClient
     monkeypatch.setattr(
