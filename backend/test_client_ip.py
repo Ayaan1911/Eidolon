@@ -36,6 +36,24 @@ def test_zero_hops_ignores_a_forged_header(hops):
     assert get_client_ip(make_request("1.2.3.4, 5.6.7.8")) == PEER
 
 
+def test_render_uses_edge_ip_not_forgeable_forwarded_chain(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    request = Request({"type": "http", "client": (PEER, 5000), "headers": [
+        (b"x-forwarded-for", b"1.2.3.4, 5.6.7.8"),
+        (b"cf-connecting-ip", b"203.0.113.7"),
+    ]})
+    assert get_client_ip(request) == "203.0.113.7"
+
+
+def test_render_missing_or_invalid_edge_ip_falls_back_to_peer(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    assert get_client_ip(make_request("1.2.3.4")) == PEER
+    request = Request({"type": "http", "client": (PEER, 5000), "headers": [
+        (b"cf-connecting-ip", b"not-an-ip"),
+    ]})
+    assert get_client_ip(request) == PEER
+
+
 def test_no_client_at_all_is_reported_as_unknown(hops):
     hops(0)
     assert get_client_ip(make_request(peer=None)) == "unknown"
