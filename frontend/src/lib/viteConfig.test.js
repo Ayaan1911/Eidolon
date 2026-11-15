@@ -10,8 +10,19 @@ test("production builds require an HTTPS API origin", () => {
       process.env.VITE_API_BASE = value
       assert.throws(() => config({ command: "build", mode: "test" }), /HTTPS backend origin/)
     }
-    process.env.VITE_API_BASE = "https://api.example.com/"
+    process.env.VITE_API_BASE = "https://eidolon-2515.onrender.com/"
     assert.ok(config({ command: "build", mode: "test" }).plugins)
+  } finally {
+    if (original === undefined) delete process.env.VITE_API_BASE
+    else process.env.VITE_API_BASE = original
+  }
+})
+
+test("production builds refuse an API origin blocked by the deployed content policy", () => {
+  const original = process.env.VITE_API_BASE
+  try {
+    process.env.VITE_API_BASE = "https://unlisted.example.com"
+    assert.throws(() => config({ command: "build", mode: "test" }), /connect-src/)
   } finally {
     if (original === undefined) delete process.env.VITE_API_BASE
     else process.env.VITE_API_BASE = original

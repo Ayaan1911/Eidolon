@@ -17,6 +17,7 @@ from services.client_ip import trusted_proxy_hops
 from services.body_limit import RequestBodyLimitMiddleware
 from services.logging_setup import RequestIdMiddleware, configure_logging
 from services.retention import delete_old_alerts, retention_days
+from services.security_headers import SecurityHeadersMiddleware
 from services.startup_checks import check_database, check_log_level, check_public_base_url, check_secrets
 
 # Local dev: read backend/.env. Variables already set in the real environment (Render) win.
@@ -53,7 +54,14 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Eidolon API", lifespan=lifespan)
+dev = os.environ.get("EIDOLON_ENV") == "dev"
+app = FastAPI(
+    title="Eidolon API",
+    lifespan=lifespan,
+    docs_url="/docs" if dev else None,
+    redoc_url="/redoc" if dev else None,
+    openapi_url="/openapi.json" if dev else None,
+)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -84,3 +92,7 @@ async def health() -> dict[str, str]:
     # Render sets RENDER_GIT_COMMIT on every deploy, so this answers "is the
     # latest fix actually live?" without opening the dashboard.
     return {"status": "ok", "commit": os.environ.get("RENDER_GIT_COMMIT", "unknown")[:7]}
+
+
+# Wrap FastAPI itself so even its outer error handler's 500 responses get headers.
+app = SecurityHeadersMiddleware(app, production=not dev)
