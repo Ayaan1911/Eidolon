@@ -178,6 +178,15 @@ honeytoken and admin-session signatures are recomputed from the secrets.
 
 ## Release checks
 
+Outside `EIDOLON_ENV=dev`, `/docs`, `/redoc` and `/openapi.json` are disabled.
+API and Vercel responses set nosniff, anti-framing, referrer and browser-permission
+headers. Production also sends HSTS and a Content Security Policy. The decoy page's
+inline script is allowed by its SHA-256 hash; inline styles remain allowed for the
+existing page and React UI. Frontend connections are restricted to the backend and
+Pwned Passwords; Google Fonts is allowed for styling. If the backend origin changes,
+update `connect-src` in `frontend/vercel.json` and the CI build URL along with
+`VITE_API_BASE`. The build refuses an API origin that the policy would block.
+
 `render.yaml` defines the backend build, migration-before-start command and `/ready`
 probe. Supply an SSL-enabled direct Postgres URL, real admin passphrase, notification
 topic, GitHub read token, frontend CORS origin and explicit public backend URL. Keep the
