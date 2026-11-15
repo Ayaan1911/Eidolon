@@ -123,8 +123,7 @@ Tests need no secrets or network: `backend/conftest.py` supplies dummy environme
 a fresh in-memory database per test, and stubs for external services. The same checks run in
 GitHub Actions on every push and pull request.
 
-Python: the repo does not pin a version (Render's is set in its dashboard). The pinned
-versions are tested in CI on Python 3.11 and 3.14 (Render runs 3.14).
+Python: the Blueprint pins Render to 3.11.9. CI tests both Python 3.11 and 3.14.
 
 
 ## Deploying: the client IP behind a proxy
@@ -140,14 +139,17 @@ app, so the app has to decide whose word to take. `X-Forwarded-For` can be writt
   any sender and rewrite `request.client.host` itself, using the leftmost entry, which a visitor can
   forge. Until it is changed, the app only sees that spoofable address; the code below cannot fix it,
   because the rewrite happens before the app runs.
-- **`TRUSTED_PROXY_HOPS`** (default `0`) is how many proxies sit in front of the app. With `0` the
+- **Render client IP.** Render's Cloudflare edge overwrites `CF-Connecting-IP`, so the app validates
+  that header and uses it for rate limits and alerts. If it is missing or malformed, it falls back
+  to the socket peer instead of trusting a visitor-supplied forwarding chain.
+- **`TRUSTED_PROXY_HOPS`** (default `0`) is for other hosting setups: how many proxies sit in front of the app. With `0` the
   header is ignored and the socket address is used. With `N`, the app reads `X-Forwarded-For` from the
   right and takes the Nth entry from the end (never the leftmost), and falls back to the socket address
   if the header is short or not an IP.
-- **Finding the right value.** Log in as admin, open the System page, and use "Client IP check" from your
-  own network. Compare "Resolved IP" with your real public IP (search "what is my IP"). Try
-  `TRUSTED_PROXY_HOPS=1` first; if "Resolved IP" is a Render/Cloudflare address instead of yours, try `2`.
-  Pick the smallest value where it shows your own IP.
+- **Checking the deployment.** Log in as admin, open the System page, and use "Client IP check"
+  from your own network. On Render, compare "Resolved IP" and `CF-Connecting-IP` with your public IP.
+  On another host, start with `TRUSTED_PROXY_HOPS=1`, increase only if the resolved IP is still a
+  proxy, and verify that a visitor-supplied leftmost entry cannot change the result.
 
 
 ## Secrets
@@ -180,7 +182,7 @@ honeytoken and admin-session signatures are recomputed from the secrets.
 probe. Supply an SSL-enabled direct Postgres URL, real admin passphrase, notification
 topic, GitHub read token, frontend CORS origin and explicit public backend URL. Keep the
 generated honeytoken signing secret stable. Never enable `EIDOLON_ENV=dev` in production.
-Verify the proxy-hop count using the admin diagnostic; its default of zero trusts no headers.
+Verify the resolved client IP using the admin diagnostic before relying on per-visitor rate limits.
 The frontend needs the real `VITE_API_BASE` at build time.
 
 Back up and test-restore the database before applying migration `0002`. Drain all writers.
@@ -191,9 +193,10 @@ Postgres lock waits are capped at 5 seconds and statements at 60 seconds. Test m
 upgrade/downgrade on a restored database before production; never assume a rollback restores
 data from an older, destructive migration implementation.
 
-Entire HTTP bodies are capped at 11 MiB before multipart parsing, with photos capped at
-10 MiB. Per-request buffering still needs ingress idle/read timeouts and bounded aggregate
-concurrency (the supplied backend start command limits concurrency to 8). Run the complete
+Photo HTTP bodies are capped at 11 MiB before multipart parsing, with decoded images capped at
+10 MiB; other request bodies are capped at 64 KiB. Body reads time out after 30 seconds for
+photos and 5 seconds elsewhere, and at most four photos are read at once. Render's ingress must
+still bound slow headers and idle connections. Run the complete
 backend suite and PostgreSQL tests, frontend tests/lint/build, then verify `/health`, `/ready`,
 admin login/logout, oversized uploads, partial scans, deployed trap URLs and real notification
 delivery. The dossier lives in browser memory and resets on reload; notifications are best effort.

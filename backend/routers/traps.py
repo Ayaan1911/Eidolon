@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from user_agents import parse
@@ -326,7 +326,7 @@ async def deploy_decoy(finding_id: str, request: Request) -> HoneytokenResponse:
 # Nothing in this repo calls it; whoever holds a stolen decoy key would. So it is rate limited per IP.
 @router.get("/api/internal/verify")
 @limiter.limit(VERIFY_LIMIT)
-async def verify_key(request: Request) -> None:
+async def verify_key(request: Request) -> JSONResponse:
     """Looks like a real "is my API key still valid" endpoint. A decoy key
     never gets a real answer - hitting it at all is the signal, so match or
     no match, the caller always sees the same generic auth failure.
@@ -337,26 +337,31 @@ async def verify_key(request: Request) -> None:
     on state surviving between requests.
     """
     key = _extract_key(request)
+    background = BackgroundTasks()
     if not is_valid_token(key):
         log.info("honeytoken verify called with a key that does not verify")  # never log the key itself
     else:
         ip = get_client_ip(request)
         # One push per key per window (a hash, so the key itself is never stored).
         if should_alert("token:" + hashlib.sha256(key.encode()).hexdigest()[:16]):
-            geo = await lookup_ip(ip)
             finding_id = key[len(TOKEN_PREFIX):].rpartition(".")[0].partition(":")[2]
-            await send_ntfy_alert(
-                "Honeytoken triggered",
-                {
-                    "Timestamp": utc_iso(utc_now()),
-                    "IP": clean(ip),
-                    "Location": clean(f"{geo.get('city', 'Unknown')}, {geo.get('country', 'Unknown')}"),
-                    "Endpoint": "/api/internal/verify",
-                    **({"Finding": clean(finding_id)} if finding_id else {}),
-                },
-            )
+            background.add_task(_alert_honeytoken, ip, finding_id)
 
-    raise HTTPException(status_code=401, detail=_INVALID_KEY_ERROR["detail"])
+    return JSONResponse(status_code=401, content=_INVALID_KEY_ERROR, background=background)
+
+
+async def _alert_honeytoken(ip: str, finding_id: str) -> None:
+    geo = await lookup_ip(ip)
+    await send_ntfy_alert(
+        "Honeytoken triggered",
+        {
+            "Timestamp": utc_iso(utc_now()),
+            "IP": clean(ip),
+            "Location": clean(f"{geo.get('city', 'Unknown')}, {geo.get('country', 'Unknown')}"),
+            "Endpoint": "/api/internal/verify",
+            **({"Finding": clean(finding_id)} if finding_id else {}),
+        },
+    )
 
 
 @router.get("/api/traps/alerts", response_model=list[AlertResponse], dependencies=[Depends(require_admin)])

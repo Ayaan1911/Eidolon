@@ -76,7 +76,7 @@ def test_raw_content_fetch_never_carries_the_github_token(monkeypatch):
                 200, json={"tree": [{"path": "README.md", "type": "blob", "size": 10}]}
             )
         seen["raw"].append(auth)
-        return httpx.Response(200, text="nothing interesting here")
+        return httpx.Response(200, stream=httpx.ByteStream(b"nothing interesting here"))
 
     _mock_github(monkeypatch, handler)
     asyncio.run(scan_user_repos("octocat"))
@@ -154,7 +154,9 @@ def _serve(monkeypatch, files, *, truncated=False, raw_status=200, delay=0.0, re
                 )
             tree = [{"path": p, "type": "blob", "size": len(c)} for p, c in files.items()]
             return httpx.Response(200, json={"tree": tree, "truncated": truncated})
-        return httpx.Response(raw_status, text=files.get(request.url.path.rsplit("/", 1)[-1], ""))
+        return httpx.Response(raw_status, stream=httpx.ByteStream(
+            files.get(request.url.path.rsplit("/", 1)[-1], "").encode()
+        ))
 
     _mock_github(monkeypatch, handler)
 
@@ -176,6 +178,89 @@ def test_failed_fetches_and_truncated_trees_are_reported(monkeypatch):
     assert result["incomplete"] is True
     assert "2 files could not be fetched" in result["incomplete_reason"]
     assert "too large" in result["incomplete_reason"]
+
+
+def test_raw_file_growth_is_bounded_even_when_tree_claims_small_size(monkeypatch):
+    def handler(request):
+        if request.url.path.endswith("/repos"):
+            return httpx.Response(200, json=[{"name": "r", "owner": {"login": "octocat"}, "fork": False}])
+        if request.url.host == "api.github.com":
+            return httpx.Response(200, json={"tree": [{"path": "a.txt", "type": "blob", "size": 1}]})
+        return httpx.Response(200, stream=httpx.ByteStream(b"x" * (github_scanner.MAX_FILE_BYTES + 1)))
+
+    _mock_github(monkeypatch, handler)
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["files_scanned"] == 0 and result["files_failed"] == 1
+    assert result["incomplete"] is True
+
+
+def test_actual_downloads_share_one_scan_budget(monkeypatch):
+    monkeypatch.setattr(github_scanner, "MAX_TOTAL_BYTES", 7)
+    monkeypatch.setattr(github_scanner, "BATCH_SIZE", 2)
+
+    def handler(request):
+        if request.url.path.endswith("/repos"):
+            return httpx.Response(200, json=[{"name": "r", "owner": {"login": "octocat"}, "fork": False}])
+        if request.url.host == "api.github.com":
+            return httpx.Response(200, json={"tree": [
+                {"path": "a.txt", "type": "blob", "size": 1},
+                {"path": "b.txt", "type": "blob", "size": 1},
+            ]})
+        return httpx.Response(200, stream=httpx.ByteStream(b"12345"))
+
+    _mock_github(monkeypatch, handler)
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["files_scanned"] == 1 and result["files_failed"] == 1
+    assert "scan size budget" in result["incomplete_reason"]
+
+
+def test_discarded_oversized_files_still_consume_download_budget(monkeypatch):
+    monkeypatch.setattr(github_scanner, "MAX_FILE_BYTES", 5)
+    monkeypatch.setattr(github_scanner, "MAX_TOTAL_BYTES", 12)
+
+    def handler(request):
+        if request.url.path.endswith("/repos"):
+            return httpx.Response(200, json=[{"name": "r", "owner": {"login": "octocat"}, "fork": False}])
+        if request.url.host == "api.github.com":
+            return httpx.Response(200, json={"tree": [
+                {"path": f"{i}.txt", "type": "blob", "size": 1} for i in range(3)
+            ]})
+        return httpx.Response(200, stream=httpx.ByteStream(b"123456"))
+
+    _mock_github(monkeypatch, handler)
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["files_scanned"] == 0
+    assert "scan size budget" in result["incomplete_reason"]
+
+
+def test_encoded_raw_response_is_skipped_before_decompression(monkeypatch):
+    def handler(request):
+        if request.url.path.endswith("/repos"):
+            return httpx.Response(200, json=[{"name": "r", "owner": {"login": "octocat"}, "fork": False}])
+        if request.url.host == "api.github.com":
+            return httpx.Response(200, json={"tree": [{"path": "a.txt", "type": "blob", "size": 1}]})
+        assert request.headers["accept-encoding"] == "identity"
+        return httpx.Response(200, headers={"Content-Encoding": "gzip"}, content=b"compressed")
+
+    _mock_github(monkeypatch, handler)
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["files_failed"] == 1 and result["incomplete"] is True
+
+
+@pytest.mark.parametrize("count,next_page", [(github_scanner.MAX_REPOS + 1, False), (1, True)])
+def test_repo_cap_and_next_page_are_reported(monkeypatch, count, next_page):
+    def handler(request):
+        if request.url.path.endswith("/repos"):
+            headers = {"Link": '<https://api.github.com/users/octocat/repos?page=2>; rel="next"'} if next_page else {}
+            return httpx.Response(200, headers=headers, json=[
+                {"name": f"r{i}", "owner": {"login": "octocat"}, "fork": False} for i in range(count)
+            ])
+        return httpx.Response(200, json={"tree": []})
+
+    _mock_github(monkeypatch, handler)
+    result = asyncio.run(scan_user_repos("octocat"))
+    assert result["incomplete"] is True
+    assert "repository limit" in result["incomplete_reason"]
 
 
 def test_a_repo_that_cannot_be_listed_is_counted_not_hidden(monkeypatch):

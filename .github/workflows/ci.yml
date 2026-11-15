@@ -11,7 +11,7 @@ jobs:
   backend:
     runs-on: ubuntu-24.04
     strategy:
-      # 3.11 is what the pinned requirements were first tested on; 3.14 is what Render runs.
+      # Render pins 3.11.9; test 3.14 as an additional compatibility check.
       matrix:
         python-version: ["3.11", "3.14"]
     env:
@@ -70,7 +70,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.14"  # must match what Render runs
+          python-version: "3.11"  # match Render's pinned Python minor version
           cache: pip
           cache-dependency-path: |
             backend/requirements.txt

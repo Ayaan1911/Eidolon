@@ -11,8 +11,7 @@ from services.secret_scanner import scan_text
 GITHUB_API = "https://api.github.com"
 MAX_REPOS = 10
 MAX_FILE_BYTES = 500_000
-# Total declared bytes fetched for one scan request, across all repos. Bounds the
-# fan-out of a single unauthenticated request; the per-file cap above bounds one file.
+# Total downloaded bytes for one scan request, across all repos.
 MAX_TOTAL_BYTES = 20_000_000
 CONCURRENCY = 5
 # One scan fetches at most this many files, in small batches, and gives up after the deadline.
@@ -111,7 +110,7 @@ def _within_budget(candidates: list[dict], remaining: int) -> tuple[list[dict], 
     return kept, used, False
 
 
-async def _list_repos(client: httpx.AsyncClient, username: str) -> tuple[list[dict], bool]:
+async def _list_repos(client: httpx.AsyncClient, username: str) -> tuple[list[dict], bool, bool]:
     try:
         resp = await client.get(
             f"{GITHUB_API}/users/{username}/repos",
@@ -122,7 +121,7 @@ async def _list_repos(client: httpx.AsyncClient, username: str) -> tuple[list[di
         raise GitHubScanError(PUBLIC_ERROR) from None
 
     if _is_rate_limited(resp):
-        return [], True
+        return [], True, False
     if resp.status_code == 404:
         raise GitHubScanError("GitHub user not found", status_code=404)
     if resp.status_code != 200:
@@ -130,7 +129,7 @@ async def _list_repos(client: httpx.AsyncClient, username: str) -> tuple[list[di
         raise GitHubScanError(PUBLIC_ERROR)
 
     repos = [r for r in resp.json() if not r.get("fork")]
-    return repos[:MAX_REPOS], False
+    return repos[:MAX_REPOS], False, len(repos) > MAX_REPOS or "next" in resp.links
 
 
 async def _get_tree(
@@ -152,15 +151,30 @@ async def _get_tree(
 
 
 async def _fetch_file(
-    client: httpx.AsyncClient, owner: str, repo: str, branch: str, path: str, sem: asyncio.Semaphore
+    client: httpx.AsyncClient, owner: str, repo: str, branch: str, path: str,
+    sem: asyncio.Semaphore, budget: dict,
 ) -> str | None:
     url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{quote(path, safe='/')}"
     async with sem:
         try:
             # No _headers() here - see its docstring for why raw.githubusercontent.com
             # specifically must not get an Authorization header.
-            resp = await client.get(url, timeout=REQUEST_TIMEOUT)
-            return resp.text if resp.status_code == 200 else None
+            async with client.stream("GET", url, headers={"Accept-Encoding": "identity"}, timeout=REQUEST_TIMEOUT) as resp:
+                if resp.status_code != 200:
+                    return None
+                if resp.headers.get("content-encoding", "identity").lower() != "identity":
+                    return None
+                content = bytearray()
+                async for chunk in resp.aiter_raw(chunk_size=64 * 1024):
+                    async with budget["lock"]:
+                        if len(chunk) > budget["remaining"]:
+                            budget["exhausted"] = True
+                            return None
+                        budget["remaining"] -= len(chunk)
+                    if len(content) + len(chunk) > MAX_FILE_BYTES:
+                        return None
+                    content.extend(chunk)
+                return content.decode("utf-8", errors="replace")
         except httpx.HTTPError:
             return None
 
@@ -168,7 +182,7 @@ async def _fetch_file(
 async def _scan_repos(client: httpx.AsyncClient, repos: list[dict], state: dict) -> None:
     """Scan repos one by one, adding to `state` as it goes, so a deadline keeps what was found so far."""
     sem = asyncio.Semaphore(CONCURRENCY)
-    bytes_left = MAX_TOTAL_BYTES
+    budget = {"remaining": MAX_TOTAL_BYTES, "exhausted": False, "lock": asyncio.Lock()}
     files_left = MAX_FILES
 
     for repo in repos:
@@ -193,8 +207,7 @@ async def _scan_repos(client: httpx.AsyncClient, repos: list[dict], state: dict)
             for item in tree
             if item.get("type") == "blob" and _is_candidate(item["path"], item.get("size", 0))
         ]
-        candidates, used, over_budget = _within_budget(candidates, bytes_left)
-        bytes_left -= used
+        candidates, _, over_budget = _within_budget(candidates, budget["remaining"])
         over_files = len(candidates) > files_left
         candidates = candidates[:files_left]
         files_left -= len(candidates)
@@ -204,7 +217,7 @@ async def _scan_repos(client: httpx.AsyncClient, repos: list[dict], state: dict)
         for i in range(0, len(candidates), BATCH_SIZE):
             batch = candidates[i : i + BATCH_SIZE]
             contents = await asyncio.gather(
-                *(_fetch_file(client, owner, name, branch, item["path"], sem) for item in batch)
+                *(_fetch_file(client, owner, name, branch, item["path"], sem, budget) for item in batch)
             )
             for item, content in zip(batch, contents):
                 if content is None:
@@ -226,6 +239,10 @@ async def _scan_repos(client: httpx.AsyncClient, repos: list[dict], state: dict)
                     entry["findings"].append(full)
                     state["total_findings"] += 1
 
+            if budget["exhausted"]:
+                state["reasons"].append("scan size budget reached; later files and repos were not scanned")
+                return
+
         if over_files:
             state["reasons"].append(f"file limit reached ({MAX_FILES} files per scan); later files were not scanned")
             return
@@ -242,11 +259,13 @@ async def scan_user_repos(username: str) -> dict:
     # attach _headers() explicitly per call; _fetch_file (raw.githubusercontent.com)
     # deliberately does not, so the same client can't leak an auth header across domains.
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-        repos, rate_limited = await _list_repos(client, username)
+        repos, rate_limited, repos_truncated = await _list_repos(client, username)
         state = {
             "results": [], "total_findings": 0, "repos_scanned": 0, "files_scanned": 0,
             "files_failed": 0, "repos_failed": 0, "trees_truncated": 0, "skipped_long_lines": 0,
-            "reasons": [_rate_limit_reason(mid_scan=False)] if rate_limited else [],
+            "reasons": [_rate_limit_reason(mid_scan=False)] if rate_limited else
+                       [f"repository limit reached ({MAX_REPOS} repos per scan); later repos were not scanned"]
+                       if repos_truncated else [],
         }
         if not rate_limited:
             try:

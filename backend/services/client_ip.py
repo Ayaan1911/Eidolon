@@ -36,6 +36,12 @@ def socket_peer(request: Request) -> str:
 
 def get_client_ip(request: Request) -> str:
     peer = socket_peer(request)
+    if os.environ.get("RENDER") == "true":
+        # Render's Cloudflare edge overwrites this header; X-Forwarded-For can retain forged entries.
+        try:
+            return str(ipaddress.ip_address(request.headers.get("cf-connecting-ip", "")))
+        except ValueError:
+            return peer
     hops = trusted_proxy_hops()
     if hops == 0:
         return peer
