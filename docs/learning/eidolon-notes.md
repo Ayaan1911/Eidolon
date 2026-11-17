@@ -12,8 +12,14 @@
 - [ ] Pass 6 — Docker and Compose
 - [x] Pass 7 — logging, readiness and background geolocation (merged, PR #5)
 - [x] Pass 8 — Mirror honesty and input safety (done on `pass-8-mirror-honesty`: no scores, in-browser password check, HTTPS geolocation, bounded scans)
-- [ ] Pass 9 — README and threat model
+- [x] Pass 9 - README and threat model (local implementation November 17, 2026; publication/CI pending)
 - [ ] Pass 10 — differentiator
+
+## Current release note - November 17, 2026
+
+The notes below are historical. Current setup, scope and limits are in the [README](../../README.md), [threat model](../security/threat-model.md) and [remaining release work](../../notes.md). In particular, older ntfy delivery observations do not prove current delivery; that release check remains open. Body limits, production headers, disabled production docs and background honeytoken notifications have since been implemented. The [database recovery runbook](../operations/database-recovery.md) records the tested branch rehearsal without claiming independent off-site recovery.
+
+Pass 9 rewrites the README around implemented behavior and explicit data destinations, adds a threat model, and replaces the stale missing-CI backlog. It also makes destructive Postgres tests opt in through a separate disposable loopback database variable, so a developer's app database URL alone cannot enable table cleanup or schema changes.
 
 ## Pass 0 revision note
 
