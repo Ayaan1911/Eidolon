@@ -86,3 +86,15 @@ def test_self_scan_does_not_flag_this_files_own_fixtures():
         this_file = f.read()
     assert scan_text_for_secrets(this_file, path="test_secret_scanner.py") == []
 
+
+def test_self_scan_does_not_flag_the_disposable_ci_database_fixture():
+    workflow = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml"
+    assert scan_text_for_secrets(workflow.read_text(encoding="utf-8"), path=".github/workflows/ci.yml") == []
+
+
+def test_real_looking_credentials_in_workflows_are_still_reported():
+    connection = _fake_url("postgresql", "dbuser", "Xk9mPqR2vNzT", "localhost:5432/app")
+    findings = scan_text_for_secrets(connection, path=".github/workflows/ci.yml")
+    assert len(findings) == 1
+    assert findings[0]["type"] == "Password in URL"
+
