@@ -1,8 +1,8 @@
-"""Checks that only make sense against a real Postgres. They are skipped unless DATABASE_URL points
-at one, so the normal local run is unaffected. CI runs them in a job with a Postgres service
-container, after `alembic upgrade head` / `downgrade base` / `upgrade head`.
+"""Destructive integration tests for an explicitly selected disposable local Postgres.
 
-Run from backend/:  DATABASE_URL=postgresql://user:pass@localhost/db python -m pytest test_postgres.py
+EIDOLON_TEST_DATABASE_URL must select eidolon_ci or eidolon_test on loopback, without
+connection query overrides. DATABASE_URL alone never enables these tests. For a Neon
+branch rehearsal use rehearse_migration.py instead, never this suite.
 """
 
 import os
@@ -16,6 +16,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.engine import make_url
 
 from conftest import alembic_config
 import main
@@ -24,16 +25,36 @@ from database import Alert, Base, Trap
 from routers.traps import count_hit
 from services import retention
 
-# Read when the file is imported, before conftest's per-test fixtures clear DATABASE_URL.
-PG_URL = os.environ.get("DATABASE_URL", "")
-pytestmark = pytest.mark.skipif(not PG_URL.startswith(("postgres://", "postgresql")), reason="needs a Postgres DATABASE_URL")
+# Only the explicit test variable opts in; a developer's app URL is never a test target.
+PG_URL = os.environ.get("EIDOLON_TEST_DATABASE_URL", "")
+pytestmark = pytest.mark.skipif(not PG_URL, reason="needs a disposable EIDOLON_TEST_DATABASE_URL")
+
+
+def validate_test_target(raw):
+    """Refuse production-shaped targets before creating an engine; never echo the URL."""
+    try:
+        url = make_url(raw)
+        valid = (
+            url.drivername in {"postgres", "postgresql", "postgresql+psycopg"}
+            and url.host in {"localhost", "127.0.0.1", "::1"}
+            and url.database in {"eidolon_ci", "eidolon_test"}
+            and not url.query
+        )
+    except Exception:
+        valid = False
+    if not valid:
+        raise pytest.UsageError(
+            "Postgres tests require a disposable local eidolon_ci or eidolon_test database "
+            "in EIDOLON_TEST_DATABASE_URL, without query parameters. These tests delete data."
+        ) from None
+    return raw
 
 
 @pytest.fixture
 def pg_engine(monkeypatch):
     from db_config import database_url
 
-    monkeypatch.setenv("DATABASE_URL", PG_URL)  # conftest removed it for this test; database_url() needs it
+    monkeypatch.setenv("DATABASE_URL", validate_test_target(PG_URL))
     engine = create_engine(database_url())
     yield engine
     engine.dispose()
