@@ -195,6 +195,8 @@ Verify the resolved client IP using the admin diagnostic before relying on per-v
 The frontend needs the real `VITE_API_BASE` at build time.
 
 Back up and test-restore the database before applying migration `0002`. Drain all writers.
+See the [database checkpoint and recovery procedure](docs/operations/database-recovery.md)
+for the verified rehearsal, its limits, and the guarded local helper.
 The migration preserves trap rows and deployed URLs and refuses duplicate non-NULL finding
 associations. Review such duplicates explicitly: one row keeps the finding association;
 others may remain standalone traps with `finding_id = NULL`, retaining their URLs/history.
